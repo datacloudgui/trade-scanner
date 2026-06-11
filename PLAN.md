@@ -86,7 +86,8 @@ Cada estrategia declara qué necesita; el orquestador construye lo mínimo. La c
 }
 ```
 
-- **Por qué ObjectStore y no `get_parameter`:** `self.get_parameter` solo devuelve strings planos y no expresa el mapa anidado `timeframes`; la UI de parámetros de QC cloud es plana. ObjectStore es el único mecanismo portable local↔cloud que soporta estructura anidada y mantiene la config fuera del código (mismo canal que los universos CSV). El `config.json` del proyecto queda solo como archivo de LEAN (algorithm-language, etc.).
+- **Por qué ObjectStore y no `get_parameter`:** `self.get_parameter` solo devuelve strings planos y no expresa el mapa anidado `timeframes`; la UI de parámetros de QC cloud es plana. ObjectStore es el único mecanismo portable local↔cloud que soporta estructura anidada y mantiene la config fuera del código (mismo canal que los universos CSV). El `config.json` del proyecto queda como archivo de LEAN + parámetros escalares sueltos (`env`, etc.) — **no** config de negocio anidada.
+- **D-E4 — `get_parameter` lee de `config.json`, no de `lean.json`:** `self.get_parameter("env")` lee desde `trade-scanner/config.json["parameters"]`. El campo `"parameters"` en `lean.json` (raíz del workspace) es para el engine LEAN y es ignorado por `get_parameter`. Parámetros escalares del algoritmo → `trade-scanner/config.json["parameters"]`. Config de negocio anidada → ObjectStore.
 - `timeframes` = mapa timeframe → periodos de SMA requeridos.
 - Por símbolo, L5 calcula la **unión** de timeframes/periodos de todas las estrategias que lo incluyen y crea solo esos consolidators/indicadores.
 - **Warmup derivado**: barras diarias necesarias = `max` sobre lo declarado. Regla: `D:n → n+5` barras; `W:n → n*5+10`; `M:n → n*21+21`. Ej.: `M:[20]` → ~441 barras diarias. Nada de "504 fijo".
@@ -235,15 +236,17 @@ Variante losers: top N negativos, reglas propias (placeholder, sin reglas en V1)
 > **Cierre (commit `[Etapa 3]`):** perfilado confirma contrato sin sorpresas (200 datos + 1 footer, 11 columnas, mediana vol ~995K); filtro combinado `avg_vol_5d > 1M AND price > 5` deja 74 advances / 68 declines. Contratos definitivos en §5. 4 estrategias en `strategies.json` (2 long + 2 short placeholder) + `environments` dev/prod. `seed_object_store.sh` actualizado con glob datado y archivo a `processed/`. Backtest confirma las 4 estrategias disparando. Decisiones y pendientes en [.claude/fase-1-desarrollo-local/etapa-03-decisiones-y-pendientes.md](.claude/fase-1-desarrollo-local/etapa-03-decisiones-y-pendientes.md).
 
 ## Etapa 4 — UniverseSpec
-**Estado:** pendiente
+**Estado:** completada
 **Objetivo:** carga de universos por estrategia desde ObjectStore con filtro declarativo
 **Depende de:** Etapa 3
 **Alcance:**
 - `core/universe.py`: lee CSV desde `self.object_store`, aplica `universe_filter` declarativo, valida tope 200, expone símbolos por estrategia (variantes por clave de universo), `refresh_universe()` no-op documentado.
 - Tests: filtro, tope, CSV malformado.
 **Done when:**
-- [ ] Backtest loguea el universo cargado por estrategia con su conteo (≤200)
-- [ ] Tests de filtro, tope y CSV malformado verdes
+- [x] Backtest loguea el universo cargado por estrategia con su conteo (≤200)
+- [x] Tests de filtro, tope y CSV malformado verdes
+
+> **Cierre (commit `[Etapa 4]`):** `core/universe.py` implementado con `COLUMN_ALIASES`, footer strip (`^[A-Z]{1,5}$`), filtro declarativo vía `df.query()`, orden alfabético y tope duro. Sin imports de `AlgorithmImports`. `main.py` integrado: 4 líneas `universe loaded: N tickers (env=..., max=..., key=...)` en `initialize()`; conteos 74 advances / 68 declines en prod, 2 en dev. 6 tests verdes en Docker (`bash scripts/run_tests.sh`). **Hallazgo D-E4:** `self.get_parameter()` lee parámetros escalares desde `trade-scanner/config.json["parameters"]`, NO desde `lean.json["parameters"]` (el campo en `lean.json` es configuración del engine, no del algoritmo). El parámetro `env` vive en `trade-scanner/config.json`. Decisiones y pendientes en [.claude/fase-1-desarrollo-local/etapa-04-decisiones-y-pendientes-md](.claude/fase-1-desarrollo-local/etapa-04-decisiones-y-pendientes-md).
 
 ## Etapa 5 — TimeframeSpec + SymbolData + warmup (etapa crítica)
 **Estado:** pendiente

@@ -4,6 +4,7 @@ from AlgorithmImports import *
 import json
 
 import core
+from core.universe import UniverseSpec
 import strategies
 # endregion
 
@@ -25,7 +26,29 @@ class Tradescanner(QCAlgorithm):
         # Config de negocio desde ObjectStore (key = ruta relativa bajo storage/). Cero
         # config hardcodeada: nombres, schedule y universo salen del JSON, no del código.
         raw = self.object_store.read("config/strategies.json")
-        strategies_config = json.loads(raw)["strategies"]
+        full_config = json.loads(raw)
+
+        # Entorno: "dev" → max_universe=2, top_n=2 | "prod" → max_universe=200, top_n=50
+        env = self.get_parameter("env", "prod")
+        env_cfg = full_config["environments"][env]
+        top_n = env_cfg["top_n"]
+        max_universe = env_cfg["max_universe"]
+
+        strategies_config = full_config["strategies"]
+
+        # Cargar universo por estrategia y loguear conteo (tickers no se usan hasta Etapa 5)
+        for name, cfg in strategies_config.items():
+            universe_key = f"universes/{cfg['universe']}.csv"
+            spec = UniverseSpec(
+                universe_key=universe_key,
+                filter_expr=cfg["universe_filter"],
+                max_tickers=max_universe,
+            )
+            tickers = spec.load(self.object_store)
+            self.log(
+                f"[{name}] universe loaded: {len(tickers)} tickers "
+                f"(env={env}, max={max_universe}, key={universe_key})"
+            )
 
         # Un ScheduledEvent por estrategia; el callback SOLO loguea (sin reglas/universos/SymbolData).
         for name, cfg in strategies_config.items():

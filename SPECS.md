@@ -1,6 +1,6 @@
 # SPECS — Screener de Acciones sobre LEAN
 
-**Versión:** 0.1 (V1) · **Fecha:** 2026-06-10 · **Estado:** borrador para desarrollo
+**Versión:** 0.1 (V1) · **Fecha:** 2026-06-11 · **Estado:** en desarrollo — Etapas 1–4 completadas
 
 ---
 
@@ -79,7 +79,7 @@
 
 | Entidad | Responsabilidad | Notas de implementación |
 |---|---|---|
-| `UniverseSpec` | Lista de símbolos de una estrategia, cargada de CSV + filtro simple de columnas (ej. `price > 5`, `avg_volume > X`). Expone `refresh_universe()` (no-op en V1, punto de extensión). | CSV leído vía ObjectStore para portabilidad local/cloud. Máx ~200 tickers por universo. Cada estrategia puede tener su variante de universo. |
+| `UniverseSpec` | Lista de símbolos de una estrategia, cargada de CSV + filtro declarativo sobre columnas normalizadas (ej. `"avg_vol_5d > 1e6 and price > 5"`). Expone `refresh_universe()` (no-op en V1, punto de extensión). | CSV leído vía ObjectStore. Footer strip (`^[A-Z]{1,5}$`). Alias normalizados (`COLUMN_ALIASES`). Filtro vía `df.query()`. Tope duro 200 post-filtro. Sin imports de `AlgorithmImports` (testeable con mock). Claves: `universes/swing_advances.csv`, `universes/swing_declines.csv`. |
 | `SymbolData` | Estado técnico de un símbolo: consolidators D/W/M, indicadores registrados, barra parcial del día. | Patrón idiomático LEAN. SMAs vía `register_indicator` sobre cada consolidator. Warmup en construcción. |
 | `Feature` | Cómputo reutilizable y nombrado sobre `SymbolData`. Ej.: `position_vs_sma(n, timeframe)`, `extension_pct(n)`, `is_pullback()`, `day_change_pct()`. | Funciones/propiedades puras de lectura. Compartidas por todas las estrategias. |
 | `Rule` | Predicado parametrizado que combina features y devuelve pasa/no-pasa + evidencia. Ej.: `AboveSMA(20, ["D","W","M"])`, `NotExtended(sma=8, max_pct=0.10)`. | Componibles con AND/NOT. Parámetros desde config, no hardcoded. |
@@ -98,7 +98,7 @@
 4. **Barra parcial del día en el scan intradía.** Suscripción en `Resolution.MINUTE`; el OHLC en curso del día se lee del `working_bar` del consolidator diario (mecanismo LEAN-nativo, agnóstico de la fuente). El `ScanResult` la marca como `partial_bar=True` con su `as_of`.
 5. **Un nodo, múltiples estrategias.** Un solo algoritmo registra todos los `ScheduledEvents`. Las estrategias comparten los `SymbolData` de los símbolos que tengan en común (un símbolo = un `SymbolData`, aunque esté en varios universos).
 6. **Fuente de datos = configuración.** Cambiar Alpaca ↔ QC cloud ↔ otro provider solo toca `lean.json` (y credenciales). El algoritmo no contiene referencias a la fuente.
-7. **Portabilidad local/cloud.** Solo API `QCAlgorithm`, universos y config de estrategias (`config/strategies.json`) vía ObjectStore. `self.get_parameter` solo para escalares sueltos si hiciera falta — no para la config anidada de estrategias, que no es portable a la UI plana de parámetros de cloud (ver PLAN.md §4). El mismo proyecto debe correr en LEAN CLI local y en QC cloud sin cambios de código.
+7. **Portabilidad local/cloud.** Solo API `QCAlgorithm`, universos y config de estrategias (`config/strategies.json`) vía ObjectStore. `self.get_parameter` solo para escalares sueltos (ej. `env`) — no para la config anidada de estrategias, que no es portable a la UI plana de parámetros de cloud (ver PLAN.md §4). Nota D-E4: los parámetros escalares del algoritmo se definen en `trade-scanner/config.json["parameters"]`, no en `lean.json`. El mismo proyecto debe correr en LEAN CLI local y en QC cloud sin cambios de código.
 8. **Solo escaneo en V1.** Cero órdenes. El diseño deja el punto de extensión: un `ScanResult` validado por expertos podrá alimentar un módulo de ejecución futuro sin reestructurar las capas (L4 produce candidatos; un futuro L4.5 los consumiría).
 
 ---

@@ -95,6 +95,11 @@ Restricciones entre capas — verifícalas en cada cambio:
 - **Tests en Docker = receta pythonnet.** La imagen embebe Python en .NET y no trae pytest ni pythonnet standalone. `run_tests.sh`: `--entrypoint bash`, `pip install clr_loader pytest`, `PYTHONNET_RUNTIME=coreclr` + `PYTHONNET_CORECLR_RUNTIME_CONFIG=<Launcher.runtimeconfig.json>`, y `cd /Lean/Launcher/bin/Debug` (donde viven `AlgorithmImports.py` y los DLLs).
 - **El reloj del backtest no avanza sin datos.** Sin sample data el engine procesa "1 data point" y los `ScheduledEvents` no disparan. SPY como ancla de calendario (`Resolution.MINUTE`) + `seed_sample_data.sh` resuelven esto.
 
+### Descubiertos en Etapa 4
+
+- **`self.get_parameter()` lee de `trade-scanner/config.json`, NO de `lean.json`.** El campo `"parameters"` en `lean.json` (raíz del workspace) es configuración del engine LEAN y es ignorado por `get_parameter()`. Los parámetros escalares del algoritmo (ej. `"env": "dev"`) deben estar en `trade-scanner/config.json["parameters"]`. Config de negocio anidada sigue yendo a ObjectStore.
+- **`core/universe.py` no debe importar `AlgorithmImports`.** Mantenerlo libre de imports LEAN permite testearlo con `MockObjectStore` simple (sin CLR) y usarlo desde scripts del host. `main.py` pasa `self.object_store` en runtime; los tests pasan su propio mock.
+
 ## Definición de "verificado"
 
 Un checkbox de PLAN.md se marca solo si:
