@@ -12,6 +12,8 @@
 #      → storage/universes/swing_advances.csv + mueve fuente a processed/
 #   3. data/object-store/*-declines-*.csv más reciente (no en processed/)
 #      → storage/universes/swing_declines.csv + mueve fuente a processed/
+#   4. universes/*.csv fixtures estáticos (ej. sample_dev) → storage/universes/
+#      (cp directo, idempotente; versionados, sin lógica de processed/)
 #
 # Si no hay archivos nuevos (todos ya en processed/), avisa pero no falla:
 #   el archivo previo en storage/universes/ permanece intacto.
@@ -24,6 +26,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE="$(cd "$SCRIPT_DIR/.." && pwd)"
 SRC_CONFIG="$WORKSPACE/config"
+SRC_UNIVERSES="$WORKSPACE/universes"
 DATA_DIR="$WORKSPACE/data/object-store"
 PROCESSED_DIR="$DATA_DIR/processed"
 DEST="$WORKSPACE/storage"
@@ -76,6 +79,16 @@ seed_universe() {
 
 seed_universe "advances" "swing_advances"
 seed_universe "declines" "swing_declines"
+
+# --- 4. Fixtures estáticos versionados (universes/*.csv) → storage/universes/ ---
+if [[ -d "$SRC_UNIVERSES" ]]; then
+  shopt -s nullglob
+  for f in "$SRC_UNIVERSES"/*.csv; do
+    cp "$f" "$DEST/universes/$(basename "$f")"
+    echo "  [universos] $(basename "$f") → universes/$(basename "$f") (fixture estático)"
+  done
+  shopt -u nullglob
+fi
 
 echo ""
 echo "Listo."
