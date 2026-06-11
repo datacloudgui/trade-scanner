@@ -15,8 +15,8 @@ import strategies
 class Tradescanner(QCAlgorithm):
     """Orquestación L5 (Etapa 5B): config desde ObjectStore, universo efectivo por
     entorno, un SymbolData por símbolo suscrito a DAILY con su consolidator cableado
-    a la suscripción (T2.1), warmup engine-managed con gate dev contra la ruta manual
-    (T2.2, D4). Features y rules (Etapas 6+) llegan después."""
+    a la suscripción (T2.1), warmup engine-managed con gate opcional contra la ruta
+    manual (T2.2, D4; flag validate_warmup). Features y rules (Etapas 6+) llegan después."""
 
     def initialize(self):
         # Ventana corta ≥2016 (D5): el valor está en la historia previa al start
@@ -109,10 +109,10 @@ class Tradescanner(QCAlgorithm):
                 lambda name=name: self._scan_stub(name),
             )
 
-        # T2.2 — Estrategia A (D4): warmup engine-managed. El engine rebobina depth
-        # barras diarias y las stremea por la suscripción → consolidator → SMAs, sin
-        # loop manual. El gate dev (on_warmup_finished) valida contra la ruta manual.
-        self._gate_dev = env == "dev"
+        # T2.2 — Estrategia A (D4): warmup engine-managed (adoptada: gate 9/9 series
+        # exactas vs ruta manual, 2026-06-11). El gate de cross-check queda detrás del
+        # flag validate_warmup del environment — apagado por defecto: duplica el warmup.
+        self._gate_enabled = bool(env_cfg.get("validate_warmup", False))
         self._warmup_depth = plan.depth_by_resolution.get("daily", 0)
         driver = max(plan.included, key=lambda s: s.warmup_bars, default=None)
         per_tf_max: dict[str, int] = {}
@@ -139,8 +139,8 @@ class Tradescanner(QCAlgorithm):
         # Lógica de runtime (Etapas 6+) va debajo de este guard.
 
     def on_warmup_finished(self):
-        """Cierre del warmup (T2.2): flush de la emisión perezosa, evidencia de
-        duración/ready, y gate dev de cross-check engine vs ruta manual (D4)."""
+        """Cierre del warmup (T2.2/T2.3): flush de la emisión perezosa, evidencia de
+        duración/ready/estrategia, y gate opcional de cross-check vs ruta manual (D4)."""
         elapsed = perf_counter() - self._warmup_t0
         streamed = sum(self._daily_received.values())
 
@@ -165,11 +165,16 @@ class Tradescanner(QCAlgorithm):
                         if not sd.is_ready(tf, p)]
                 self.log(f"WARNING [warmup] {symbol.value} series frías: {', '.join(cold)}")
 
-        if self._gate_dev and self._warmup_depth:
+        gate = "ON" if self._gate_enabled else "OFF (flag validate_warmup)"
+        self.log(
+            f"[warmup] estrategia: set_warm_up engine-managed (A, adoptada en T2.2 "
+            f"con gate 9/9 exactas); gate cross-check {gate}"
+        )
+        if self._gate_enabled and self._warmup_depth:
             self._run_warmup_gate()
 
     def _run_warmup_gate(self) -> None:
-        """Gate D4 (solo dev): la ruta manual de 5A — history[TradeBar] tipado en UNA
+        """Gate D4 (bajo flag validate_warmup): la ruta manual de 5A — history[TradeBar] tipado en UNA
         llamada batch + update por barra + scan de cierre — sobre SymbolData sombra
         debe reproducir EXACTAMENTE las SMAs que dejó set_warm_up. Coinciden → A
         adoptado; divergen → WARNING con detalle (causa de rollback)."""

@@ -208,3 +208,43 @@ resolución DAILY) — sin déficit que comprometa M:200.
   en T7.1 (budget prod bajo).
 - **T3** — archivo de validación: escribirlo en `on_warmup_finished` después del flush
   (las SMAs quedan al día gracias al hallazgo de arriba).
+
+## T2.3 — logs de evidencia + gate detrás de flag `validate_warmup` (2026-06-11)
+
+**Estado:** ✅ completada (los cinco logs del criterio verificados por ejecución).
+
+### Decisiones tomadas (instrucción del usuario + cierre de la pendiente de T2.2)
+
+- **Gate de cross-check detrás de flag, apagado por defecto:** nueva key
+  `environments.dev.validate_warmup: false` en `strategies.json`. `main.py` lo lee con
+  `env_cfg.get("validate_warmup", False)` — cualquier environment puede activarlo, ninguno lo
+  hereda por defecto. Razón: el gate duplica el warmup (+depth filas de `history` por símbolo);
+  como herramienta de re-validación se enciende a demanda (upgrades de imagen LEAN, debugging).
+- **Contadores 1:1 se conservan** (decisión del usuario): costo ~cero y detectan regresiones
+  silenciosas de wiring hasta que el fixture T4 cubra esa regresión por valores congelados.
+- **La decisión de estrategia de warmup se loguea SIEMPRE** (antes solo aparecía vía gate):
+  `[warmup] estrategia: set_warm_up engine-managed (A, adoptada en T2.2 con gate 9/9 exactas);
+  gate cross-check ON|OFF (flag validate_warmup)` — el log de cada run documenta qué ruta corre
+  y si el cross-check estuvo activo.
+
+### Verificación (criterio de T2.3: logs de evidencia, env=dev)
+
+| Log exigido | Evidencia (runs 2026-06-11_18-44-15 flag off / _18-44-35 flag on) |
+|---|---|
+| Profundidad derivada con driver | ✓ `[warmup] plan(daily): depth=4221 (driver M:200) \| D:200→205, M:200→4221, W:200→1010` |
+| Duración (filas + tiempo, baseline §11) | ✓ `4221 barras stremeadas en 1.00s` (~0.8–1.0 s/símbolo a depth 4221 — baseline para el riesgo de warmup de 200 símbolos de SPECS §11) |
+| Conteo ready/no-ready por símbolo | ✓ `[warmup] ready: 1/1 símbolos` + `WARNING ... series frías: ...` por símbolo no-ready (rama verificada en tests de 5A; no dispara con SPY) |
+| Warning por serie excluida del presupuesto | ⚠️ cableado (warning + serie no construida); en dev no dispara por diseño (budget 4300) — verificación real en T7.1 |
+| Estrategia de warmup usada | ✓ incondicional; con flag ON además: `gate dev OK: set_warm_up ADOPTADO — 9/9 series exactas` |
+
+- Flag verificado en ambos estados: OFF → sin líneas de gate; ON → gate corre y da 9/9.
+  Revertido a `false` y re-seeded al terminar.
+- `bash scripts/run_tests.sh` → 31 passed.
+
+### Pendiente
+
+- **T3** (siguiente): archivo `validation/sma_validation_<fecha>.csv` en `on_warmup_finished`
+  tras el flush, solo dev, K=5 filas/serie.
+- Retiro de los contadores 1:1: re-evaluar recién cuando T4 congele el fixture (hasta entonces
+  se quedan — decisión del usuario).
+- Warning de exclusión: disparo real pendiente de T7.1 (budget prod).
