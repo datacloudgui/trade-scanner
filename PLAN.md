@@ -9,12 +9,12 @@ Archivo principal de trabajo. Complementa a `SPECS.md` (contexto de producto). A
 ## 1. Reglas no negociables
 
 1. El código solo habla con la API de `QCAlgorithm`. Sin SDKs de brokers/datos embebidos.
-2. Portable local ↔ QuantConnect cloud sin cambios de código: fuente de datos y broker viven en `lean.json`; parámetros vía `self.get_parameter`; archivos vía ObjectStore.
+2. Portable local ↔ QuantConnect cloud sin cambios de código: fuente de datos y broker viven en `lean.json`; config de negocio y archivos (universos, `strategies.json`) vía ObjectStore. `self.get_parameter` solo para escalares sueltos si hiciera falta — no para la config anidada de estrategias (ver §4).
 3. Un solo algoritmo/nodo ejecuta TODAS las estrategias vía `self.schedule.on(...)`.
 4. **Los marcos de tiempo NO son fijos: cada estrategia declara los suyos.** Los consolidators creados y la profundidad del warmup se derivan de esas declaraciones (ver §4).
 5. Desarrollo solo con LEAN CLI (`lean backtest` / `lean live`), engine en Docker `quantconnect/lean`.
 6. Indicadores y barras W/M/etc. siempre con consolidators e indicadores de LEAN (`Calendar.WEEKLY`, `Calendar.MONTHLY`, `register_indicator`). Prohibido resampling manual con pandas en el algoritmo.
-7. Parámetros de estrategias (umbrales, horarios, timeframes, archivo de universo) en `config.json` del proyecto, nunca hardcodeados.
+7. Parámetros de estrategias (umbrales, horarios, timeframes, archivo de universo) en `config/strategies.json` (ObjectStore), nunca hardcodeados ni en `config.json` del proyecto (ver §4).
 
 ## 2. Capas y restricciones entre capas
 
@@ -38,12 +38,13 @@ L1 Config externa lean.json · CSVs en ObjectStore · parámetros
 trade-scanner/              # lean init aquí (workspace)
 ├── lean.json                    # provider de datos/broker: ÚNICO lugar que cambia entre fuentes
 ├── data/                        # data folder LEAN (gestionado por CLI; no versionar contenido pesado)
-│   └── object-store/            # ObjectStore local (aquí se siembran los CSVs de universo)
+├── storage/                     # ObjectStore local REAL del CLI (montado en /Storage); copia
+│                                #   sembrada y gitignoreada — fuente versionada vive en config/
 ├── trade-scanner/               # lean project-create "trade-scanner" --language python
 │   ├── main.py                  # L5: única clase QCAlgorithm
-│   ├── config.json              # parámetros: estrategias, timeframes, umbrales, horarios, claves de universo
+│   ├── config.json              # archivo de proyecto LEAN (algorithm-language, etc.) — NO config de negocio
 │   ├── research.ipynb           # exploración (generado por CLI)
-│   ├── core/
+│   ├── core/                    # paquete: incluye __init__.py (portable local↔cloud)
 │   │   ├── timeframes.py        # TimeframeSpec: "D"|"W"|"M" → consolidator + barras de warmup necesarias
 │   │   ├── symbol_data.py       # SymbolData (L2)
 │   │   ├── features.py          # Features (L3)
@@ -51,34 +52,41 @@ trade-scanner/              # lean init aquí (workspace)
 │   │   ├── pipeline.py          # ScanPipeline, ScanResult (L4)
 │   │   ├── universe.py          # UniverseSpec: CSV ObjectStore + filtro simple + refresh_universe() no-op
 │   │   └── output.py            # OutputSink: CSV/JSON local | NotificationManager cloud (selección por entorno)
-│   ├── strategies/
+│   ├── strategies/              # paquete: incluye __init__.py
 │   │   ├── base.py              # StrategyConfig: declara timeframes requeridos, rules, schedule, universo
 │   │   ├── swing_eod.py
 │   │   └── market_close.py
 │   └── tests/                   # pytest con TradeBars sintéticos (correr dentro de imagen LEAN)
+├── config/                      # config de negocio versionada (se siembra a ObjectStore)
+│   └── strategies.json          # estrategias, timeframes, umbrales, horarios, top_n (ver §4)
 ├── universes/                   # CSVs fuente versionados (se siembran a ObjectStore con script)
 │   └── swing.csv
+├── data/equity/usa/             # sample data libre (SPY 2013) p/ que el reloj del backtest avance — ver Etapa 2
 ├── scripts/
 │   ├── explore_universe.py      # perfilado del CSV de entrada (Etapa 3)
-│   ├── seed_object_store.sh     # copia universes/*.csv → data/object-store/
+│   ├── seed_object_store.sh     # copia config/*.json + universes/*.csv → storage/
+│   ├── seed_sample_data.sh      # baja sample data libre del repo público LEAN → data/ (Etapa 2)
 │   └── run_tests.sh             # pytest dentro de la imagen quantconnect/lean
 └── README.md
 ```
 
 ## 4. Diseño clave: timeframes por estrategia
 
-Cada estrategia declara qué necesita; el orquestador construye lo mínimo:
+Cada estrategia declara qué necesita; el orquestador construye lo mínimo. La config de estrategias vive en un **JSON en ObjectStore** (`config/strategies.json`), leído por `main.py` vía `self.object_store` + `json.loads` — **no** en `config.json` del proyecto ni vía `self.get_parameter`:
 
 ```json
-// config.json (fragmento "parameters")
-"strategies": {
-  "swing_eod":     { "universe": "swing", "timeframes": { "D": [8, 20], "W": [20], "M": [20] },
-                     "schedule": "after_close", "top_n": 50, "max_extension_pct": 0.10 },
-  "market_close":  { "universe": "swing", "timeframes": { "D": [8, 20], "W": [20], "M": [20] },
-                     "schedule": "before_close_30m", "top_n": 50, "max_extension_pct": 0.10 }
+// config/strategies.json  (sembrado a ObjectStore; versionado en config/ del repo)
+{
+  "strategies": {
+    "swing_eod":    { "universe": "swing", "timeframes": { "D": [8, 20], "W": [20], "M": [20] },
+                      "schedule": "after_close", "top_n": 50, "max_extension_pct": 0.10 },
+    "market_close": { "universe": "swing", "timeframes": { "D": [8, 20], "W": [20], "M": [20] },
+                      "schedule": "before_close_30m", "top_n": 50, "max_extension_pct": 0.10 }
+  }
 }
 ```
 
+- **Por qué ObjectStore y no `get_parameter`:** `self.get_parameter` solo devuelve strings planos y no expresa el mapa anidado `timeframes`; la UI de parámetros de QC cloud es plana. ObjectStore es el único mecanismo portable local↔cloud que soporta estructura anidada y mantiene la config fuera del código (mismo canal que los universos CSV). El `config.json` del proyecto queda solo como archivo de LEAN (algorithm-language, etc.).
 - `timeframes` = mapa timeframe → periodos de SMA requeridos.
 - Por símbolo, L5 calcula la **unión** de timeframes/periodos de todas las estrategias que lo incluyen y crea solo esos consolidators/indicadores.
 - **Warmup derivado**: barras diarias necesarias = `max` sobre lo declarado. Regla: `D:n → n+5` barras; `W:n → n*5+10`; `M:n → n*21+21`. Ej.: `M:[20]` → ~441 barras diarias. Nada de "504 fijo".
@@ -138,18 +146,28 @@ Variante losers: top N negativos, reglas propias (placeholder, sin reglas en V1)
 - [x] Credenciales Alpaca en `.env` (gitignoreado); `lean.json` sin valores reales
 - [x] `lean.json`, `.gitignore` y proyecto commiteados con `[Etapa 1] ...`
 
-## Etapa 2 — Esqueleto del proyecto
-**Estado:** pendiente
-**Objetivo:** árbol §3 creado, schedule de estrategias logueando y pytest corriendo en Docker
+## Etapa 2 — Esqueleto del proyecto (walking skeleton)
+**Estado:** completada
+**Objetivo:** plumbing end-to-end validado temprano: paquetes importables, carga de config desde ObjectStore, un ScheduledEvent por estrategia disparando a su hora real, y pytest verde dentro de la imagen LEAN. Sin lógica de negocio (eso son Etapas 4+).
 **Depende de:** Etapa 1
+
+> **Hallazgo que define el alcance (verificado en log de Etapa 1):** un backtest **sin datos no avanza el reloj** — el motor procesa "1 data point" y dispara `On End Of Algorithm` de inmediato; los `ScheduledEvents` nunca corren. Doc QC: *"in backtests, the algorithm clock only advances when new data arrives."* Por eso esta etapa siembra sample data libre y ancla las time-rules a un símbolo de referencia. Además, la config de negocio NO va en `config.json`/`get_parameter` (no portable a cloud para estructura anidada) sino en JSON en ObjectStore (ver §4).
+
 **Alcance:**
-- Crear árbol §3 (core/, strategies/, tests/, scripts/, universes/).
-- `main.py` mínimo: lee `config.json`, registra un ScheduledEvent por estrategia que solo loguea "scan <nombre> @ <hora>".
-- `scripts/run_tests.sh` ejecutando pytest dentro de la imagen LEAN; un test trivial verde.
+- **Estructura mínima (no stubs muertos):** crear `core/`, `strategies/`, `tests/` como paquetes con `__init__.py`, y solo los archivos que esta etapa ejercita. Cada etapa posterior añade su módulo. `config/`, `universes/`, `scripts/` en la raíz del workspace (fuera del proyecto pusheable).
+- **`scripts/seed_sample_data.sh`:** baja la sample data libre de SPY (~2013, `Resolution.MINUTE`) del repo público de LEAN a `data/equity/usa/` (sin auth QC — ver ADR-002). Hace avanzar el reloj del backtest.
+- **`config/strategies.json` + seed a ObjectStore:** estructura mínima de §4 (dos estrategias con `schedule` y `universe`; resto de campos pueden ir vacíos/placeholder en esta etapa). `scripts/seed_object_store.sh` lo copia a `storage/config/` (el ObjectStore real del CLI; **no** `data/object-store/`). Key de lectura: `config/strategies.json`.
+- **`main.py` esqueleto (L5):** `add_equity("SPY", Resolution.MINUTE)` como ancla de calendario; lee `config/strategies.json` vía `self.object_store` + `json.loads`; mapea los strings de schedule (`after_close` → `time_rules.after_market_close(SPY, …)`, `before_close_30m` → `time_rules.before_market_close(SPY, 30)`, `date_rules.every_day(SPY)`); registra un `ScheduledEvent` por estrategia que solo loguea `"scan <nombre> @ <hora>"`.
+- **`scripts/run_tests.sh`:** pytest dentro de `quantconnect/lean` (montando el proyecto). El test no es trivial: **importa `AlgorithmImports` y construye un objeto LEAN** (p. ej. un `TradeBar`) — así de-riesga que el puente pythonnet funciona en Docker, que es el verdadero unknown.
+
 **Done when:**
-- [ ] `lean backtest` muestra logs de schedule a las horas configuradas (after_close, before_close_30m) según el calendario del mercado
-- [ ] `scripts/run_tests.sh` ejecuta pytest dentro de la imagen LEAN con al menos un test verde
-- [ ] El árbol del repo coincide con §3
+- [x] `lean backtest` recorre la ventana con sample data y loguea cada `scan <estrategia> @ <hora>` a la hora correcta según el calendario del mercado (after_close, before_close_30m) — verificado por timestamps en el log, no asumido
+- [x] `main.py` carga `strategies.json` desde ObjectStore (no desde `config.json` ni `get_parameter`); cero config de negocio hardcodeada
+- [x] `scripts/run_tests.sh` corre pytest dentro de la imagen LEAN con un test verde que importa `AlgorithmImports` y construye un objeto LEAN
+- [x] `core/`, `strategies/`, `tests/` son paquetes importables (`__init__.py`); el árbol coincide con §3 para los archivos creados en esta etapa
+- [x] Commit `[Etapa 2] ...`; sample data (`data/equity/`) gitignoreada
+
+> **Cierre (commit `[Etapa 2]`):** `market_close` dispara 15:30 y `swing_eod` 16:01 (verificado en log); config leída de `storage/config/strategies.json`; `run_tests.sh` verde (`1 passed`). Hallazgos y decisiones reversibles en [.claude/fase-1-desarrollo-local/etapa-02-decisiones-y-pendientes.md](.claude/fase-1-desarrollo-local/etapa-02-decisiones-y-pendientes.md).
 
 ## Etapa 3 — Exploración y contrato del archivo de entrada
 **Estado:** pendiente
@@ -158,7 +176,7 @@ Variante losers: top N negativos, reglas propias (placeholder, sin reglas en V1)
 **Alcance:**
 - `scripts/explore_universe.py` sobre el CSV real: columnas, tipos, nulos, duplicados, tickers inválidos/no-US, rangos de price y volumen, conteo post-filtro.
 - Confirmar o ajustar los contratos de datos borrador (abajo) con base en lo observado; actualizar este archivo.
-- `scripts/seed_object_store.sh`: copiar CSV validado a `data/object-store/universes/swing.csv`.
+- `scripts/seed_object_store.sh`: copiar CSV validado a `storage/universes/swing.csv`.
 
 **Contrato CSV de universo — BORRADOR (confirmar en esta etapa):**
 ```
@@ -167,7 +185,7 @@ AAPL,232.5,1200000000
 ```
 - Columnas mínimas requeridas: `ticker`, `price`, `avg_dollar_volume`.
 - Columnas extra permitidas; se ignoran salvo que `universe_filter` las referencie.
-- Filtro declarativo en `config.json`: string evaluable, ej. `"price > 5 and avg_dollar_volume > 5e6"`.
+- Filtro declarativo en `config/strategies.json` (ObjectStore): string evaluable, ej. `"price > 5 and avg_dollar_volume > 5e6"`.
 - Tope duro: 200 tickers post-filtro.
 
 **Contrato ScanResult — BORRADOR (confirmar en esta etapa):**

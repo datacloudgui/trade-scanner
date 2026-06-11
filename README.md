@@ -121,7 +121,7 @@ bash Screener/scripts/seed_object_store.sh
 
 ## Salida
 
-Cada ejecución de una estrategia produce un archivo en `data/object-store/results/`:
+Cada ejecución de una estrategia produce un archivo en `storage/results/` (ObjectStore local del CLI):
 
 ```
 strategy,as_of,ticker,partial_bar,day_change_pct,sma20_d,dist_sma20_d_pct,sma20_w,...,passed_rules
@@ -163,7 +163,8 @@ Produce un reporte de columnas, tipos, nulos, duplicados, tickers inválidos y d
 screener-workspace/
 ├── lean.json                    # configuración del engine y proveedor de datos
 ├── data/                        # datos locales gestionados por LEAN CLI
-│   └── object-store/
+├── storage/                     # ObjectStore local del CLI (montado en /Storage); gitignoreado
+│       ├── config/              # strategies.json sembrado por seed_object_store.sh
 │       ├── universes/           # CSVs sembrados por seed_object_store.sh
 │       └── results/             # watchlists generadas
 ├── Screener/

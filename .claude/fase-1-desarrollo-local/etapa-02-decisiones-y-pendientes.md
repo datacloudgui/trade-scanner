@@ -90,7 +90,7 @@
 | P3 | Cuerpo de `main.py` sigue siendo scaffold con orden `set_holdings` | ✅ Resuelto (T4) | scaffold/orden eliminado; ancla SPY + ScheduledEvent que solo loguea |
 | P4 | Commit `[Etapa 2] ...` (paquetes, main.py, scripts, config, test; excluye sample data) | ✅ Resuelto (T6) | commit con artefactos de Etapa 2; docs CLAUDE/PLAN/SPECS quedan sin stagear (van con P6) |
 | P5 | Definir la *key* exacta del ObjectStore para `strategies.json` | ✅ Resuelto (D4) | key = `config/strategies.json` |
-| P6 | Corregir la doc: el ObjectStore local es `storage/`, no `data/object-store/` (CLAUDE.md, PLAN.md §3, spec T3, gotcha Etapa 1) | Pendiente, requiere tu OK | Editar docs tras aprobación |
+| P6 | Corregir la doc: el ObjectStore local es `storage/`, no `data/object-store/` (CLAUDE.md, PLAN.md §3, spec T3, gotcha Etapa 1) | ✅ Resuelto | CLAUDE.md (gotcha + comandos + nuevo gotcha Etapa 2), PLAN.md (§3 tree, Et.2/Et.4, estado completada), README.md, nota D4 en spec T3. `.gitignore`: exención `!data/object-store/` se deja (un-ignora dir vacío sin uso; inofensiva) |
 | P7 | `storage/` (copia sembrada, regenerable) debe ir a `.gitignore`; revisar si `data/object-store/` sigue mencionado | ✅ Resuelto (T6) | `storage/` añadido a `.gitignore`. La excepción `!data/object-store/` se dejó intacta (la revisa P6 al corregir doc) |
 | P8 | `run_tests.sh` hace `pip install clr_loader pytest` en cada corrida (requiere red). Opcional: imagen derivada con deps precacheadas | Aceptado, opcional | Solo si molesta la latencia o se va a CI offline |
 

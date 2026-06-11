@@ -98,7 +98,7 @@
 4. **Barra parcial del día en el scan intradía.** Suscripción en `Resolution.MINUTE`; el OHLC en curso del día se lee del `working_bar` del consolidator diario (mecanismo LEAN-nativo, agnóstico de la fuente). El `ScanResult` la marca como `partial_bar=True` con su `as_of`.
 5. **Un nodo, múltiples estrategias.** Un solo algoritmo registra todos los `ScheduledEvents`. Las estrategias comparten los `SymbolData` de los símbolos que tengan en común (un símbolo = un `SymbolData`, aunque esté en varios universos).
 6. **Fuente de datos = configuración.** Cambiar Alpaca ↔ QC cloud ↔ otro provider solo toca `lean.json` (y credenciales). El algoritmo no contiene referencias a la fuente.
-7. **Portabilidad local/cloud.** Solo API `QCAlgorithm`, universos vía ObjectStore, parámetros vía `self.get_parameter`. El mismo proyecto debe correr en LEAN CLI local y en QC cloud sin cambios de código.
+7. **Portabilidad local/cloud.** Solo API `QCAlgorithm`, universos y config de estrategias (`config/strategies.json`) vía ObjectStore. `self.get_parameter` solo para escalares sueltos si hiciera falta — no para la config anidada de estrategias, que no es portable a la UI plana de parámetros de cloud (ver PLAN.md §4). El mismo proyecto debe correr en LEAN CLI local y en QC cloud sin cambios de código.
 8. **Solo escaneo en V1.** Cero órdenes. El diseño deja el punto de extensión: un `ScanResult` validado por expertos podrá alimentar un módulo de ejecución futuro sin reestructurar las capas (L4 produce candidatos; un futuro L4.5 los consumiría).
 
 ---

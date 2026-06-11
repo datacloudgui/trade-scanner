@@ -48,6 +48,11 @@ Esto es un *walking skeleton*: el esqueleto camina (el reloj avanza, los eventos
 
 ### T3 — `config/strategies.json` + seed a ObjectStore
 
+> **Corrección post-implementación (D4):** donde este spec dice `data/object-store/`, el
+> ObjectStore real del CLI es `storage/` (montado en `/Storage`). El seed copia a
+> `storage/config/` y la key resuelta es `config/strategies.json`. Ver
+> [etapa-02-decisiones-y-pendientes.md](etapa-02-decisiones-y-pendientes.md) (D4).
+
 **Criterio de aceptación:** `config/strategies.json` existe versionado en la raíz; `scripts/seed_object_store.sh` lo copia a `data/object-store/`; tras correr el seed, `main.py` puede leerlo vía `self.object_store.read("config/strategies.json")` (o la key acordada) sin error.
 
 **Notas:**

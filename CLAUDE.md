@@ -24,7 +24,8 @@ lean backtest "trade-scanner"            # backtest local (Docker)
 lean live "trade-scanner"                # paper live local (requiere QC paid — ver ADR-002)
 lean research "trade-scanner"            # Jupyter para exploración
 bash scripts/run_tests.sh                # pytest DENTRO de la imagen LEAN (único modo válido)
-bash scripts/seed_object_store.sh        # universes/*.csv → data/object-store/
+bash scripts/seed_object_store.sh        # config/*.json (+ universes/*.csv) → storage/ (ObjectStore real)
+bash scripts/seed_sample_data.sh         # SPY sample data libre → data/equity/ (avanza el reloj del backtest)
 python scripts/explore_universe.py <csv> # perfilado del CSV de universo
 ```
 
@@ -39,7 +40,7 @@ L5 main.py        orquestación: config → universos → SymbolData+warmup → 
 L4 strategies/ + core/{pipeline,rules}.py   estrategias = composición declarativa de Rules
 L3 core/features.py    cómputos reutilizables sobre SymbolData
 L2 core/{symbol_data,timeframes}.py   consolidators + indicadores + working bar + warmup
-L1 lean.json · config.json · ObjectStore (CSVs)
+L1 lean.json · ObjectStore (config/strategies.json + universos CSV)
 ```
 
 Restricciones entre capas — verifícalas en cada cambio:
@@ -53,8 +54,8 @@ Restricciones entre capas — verifícalas en cada cambio:
 - El código solo habla con la API de `QCAlgorithm`. Sin SDKs de Alpaca/brokers/datos.
 - Portable local ↔ QC cloud sin cambios de código. Fuente de datos = solo `lean.json`.
 - Barras y SMAs de W/M/etc. con consolidators e indicadores de LEAN (`Calendar.WEEKLY`, `Calendar.MONTHLY`, `register_indicator`). PROHIBIDO resampling manual con pandas dentro del algoritmo.
-- Timeframes NO fijos: cada estrategia los declara en `config.json`; consolidators y profundidad de warmup se derivan de ahí (fórmula en PLAN.md §4). Nunca un número de warmup hardcodeado.
-- Umbrales, horarios, top_n, archivos de universo: en `config.json`, jamás en código.
+- Timeframes NO fijos: cada estrategia los declara en `config/strategies.json` (ObjectStore); consolidators y profundidad de warmup se derivan de ahí (fórmula en PLAN.md §4). Nunca un número de warmup hardcodeado.
+- Umbrales, horarios, top_n, archivos de universo: en `config/strategies.json` (ObjectStore), jamás en código ni en el `config.json` del proyecto (solo archivo de LEAN). Ver PLAN.md §4.
 - Universo: tope duro 200 tickers post-filtro.
 - Cero órdenes: nada de `self.market_order` ni similares.
 - Credenciales (QC, Alpaca) fuera del repo siempre.
@@ -72,7 +73,7 @@ Restricciones entre capas — verifícalas en cada cambio:
 - `Calendar.WEEKLY` agrupa lunes→domingo (cierre efectivo viernes); `Calendar.MONTHLY` mes calendario. Las SMAs deben cuadrar con la plataforma de referencia del trader (validación en Etapa 5).
 - Warmup: pide historia en batch (`self.history(symbols, n, Resolution.DAILY)`) y empuja cada barra a los consolidators del símbolo; los indicadores registrados se actualizan solos.
 - Barra parcial del día = `working_bar` del consolidator diario (requiere suscripción `Resolution.MINUTE`). Los indicadores W/M NO incluyen la barra en curso: eso es correcto y deseado (SMAs estables intradía).
-- ObjectStore local vive en `data/object-store/` del workspace; en cloud es transparente. Lee siempre vía `self.object_store`, nunca con `open()` a rutas absolutas.
+- ObjectStore local vive en `storage/` del workspace (el CLI lo monta en `/Storage` dentro de Docker); **no** es `data/object-store/`. La key `config/strategies.json` se lee desde `storage/config/strategies.json`. En cloud es transparente. Lee siempre vía `self.object_store`, nunca con `open()` a rutas absolutas.
 - Entorno: `self.live_mode` + parámetro de entorno deciden el sink de salida (solo dentro de `output.py`).
 - Alpaca free: datos IEX (volumen subestimado → usa volumen relativo, no absoluto), 15 min de delay, 100 calls/min (afecta warmup, no el scan).
 - Símbolos con warmup incompleto: excluir del scan y loguear, nunca evaluar reglas con indicadores fríos (`is_ready()`).
@@ -87,6 +88,12 @@ Restricciones entre capas — verifícalas en cada cambio:
 - **`${VAR}` NO se expande en lean.json.** El CLI no hace sustitución de variables de entorno. Credenciales en campos vacíos en lean.json (commiteado) + valores reales solo en `.env` (gitignoreado).
 - **`lean live` con Alpaca requiere QC paid (plan Researcher).** AlpacaBrokerage tiene `installs: true` → el CLI intenta descargar un módulo NuGet via API de QC. Sin licencia falla. Ver [ADR-002](.claude/decisions/ADR-002-qc-module-auth-constraint.md) y el flag en Etapa 9 de PLAN.md.
 - **Gitignore para artefactos del CLI:** añadir `**/backtests/`, `**/.idea/`, `**/.vscode/`, `**/research.ipynb` — el CLI los genera automáticamente y no deben commitearse.
+
+### Descubiertos en Etapa 2
+
+- **El ObjectStore local del CLI es `storage/`, NO `data/object-store/`.** El CLI monta `<workspace>/storage/` en `/Storage` (`lean_runner.py`: `storage_dir = cli_root/"storage"`). Sembrar en `data/object-store/` da `Object with path '...' was not found`. `storage/` está gitignoreado (copia regenerable; la fuente versionada vive en `config/`).
+- **Tests en Docker = receta pythonnet.** La imagen embebe Python en .NET y no trae pytest ni pythonnet standalone. `run_tests.sh`: `--entrypoint bash`, `pip install clr_loader pytest`, `PYTHONNET_RUNTIME=coreclr` + `PYTHONNET_CORECLR_RUNTIME_CONFIG=<Launcher.runtimeconfig.json>`, y `cd /Lean/Launcher/bin/Debug` (donde viven `AlgorithmImports.py` y los DLLs).
+- **El reloj del backtest no avanza sin datos.** Sin sample data el engine procesa "1 data point" y los `ScheduledEvents` no disparan. SPY como ancla de calendario (`Resolution.MINUTE`) + `seed_sample_data.sh` resuelven esto.
 
 ## Definición de "verificado"
 
