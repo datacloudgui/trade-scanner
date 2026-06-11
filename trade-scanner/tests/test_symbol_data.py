@@ -262,3 +262,23 @@ def test_t3_11_readiness_per_series_and_aggregate():
     sd.scan(monday21 + timedelta(days=1))
     assert sd.is_ready("W", 20) is True
     assert sd.is_ready() is True
+
+
+# --- T3 (Etapa 5B) — accessor de consolidators para observers de L5 ---
+
+def test_5b_t3_consolidator_accessor_and_observer_order():
+    sd = SymbolData(SPY, {"D": {2}, "W": {1}})
+    assert sd.consolidator("D") is sd.daily_consolidator
+    # Observer añadido DESPUÉS de construir SymbolData: cuando emite, la SMA del mismo
+    # consolidator YA está actualizada (orden de handlers .NET = orden de suscripción).
+    # El recorder de validación de main.py (T3) depende de esta garantía.
+    seen = []
+    sd.consolidator("W").data_consolidated += (
+        lambda _s, bar: seen.append((bar.end_time, float(sd.sma("W", 1).current.value)))
+    )
+    push_week(sd, 2024, 1, 8, 11)
+    sd.scan(datetime(2024, 1, 15))
+    assert seen == [(datetime(2024, 1, 15), pytest.approx(11.0))]
+    with pytest.raises(KeyError) as err:
+        sd.consolidator("M")
+    assert "'M'" in str(err.value) and "'D'" in str(err.value) and "'W'" in str(err.value)

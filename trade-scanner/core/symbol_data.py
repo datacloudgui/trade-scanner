@@ -104,6 +104,20 @@ class SymbolData:
         """Timeframes con consolidator construido (la raíz 'D' existe siempre)."""
         return {"D", *self._chained}
 
+    def consolidator(self, tf: str) -> Any:
+        """Consolidator del timeframe construido ('D' = raíz, siempre existe); KeyError
+        con los construidos si no. Permite a L5 colgar observers (ej. captura de
+        evidencia por barra consolidada) sin tocar el wiring interno."""
+        if tf == "D":
+            return self._daily
+        try:
+            return self._chained[tf]
+        except KeyError:
+            raise KeyError(
+                f"Timeframe '{tf}' sin consolidator para '{self.symbol}' "
+                f"(construidos: {sorted(self.timeframes)})"
+            ) from None
+
     def sma(self, tf: str, period: int) -> Any:
         """SMA declarada para (tf, period); KeyError con las series declaradas si no existe."""
         try:

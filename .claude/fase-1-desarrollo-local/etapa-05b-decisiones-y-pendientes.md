@@ -248,3 +248,54 @@ resolución DAILY) — sin déficit que comprometa M:200.
 - Retiro de los contadores 1:1: re-evaluar recién cuando T4 congele el fixture (hasta entonces
   se quedan — decisión del usuario).
 - Warning de exclusión: disparo real pendiente de T7.1 (budget prod).
+
+## T3 — archivo de validación de SMAs, K=5 por serie (2026-06-11)
+
+**Estado:** ✅ completada (criterio verificado por ejecución: archivo + contenido + tests).
+
+### Decisiones tomadas
+
+- **Flag de config `sma_validation`** (la "(flag de config)" que pedía el spec): nueva key
+  `environments.dev.sma_validation: true`; prod no la define → default `False` → ni recorder
+  ni archivo. Mismo patrón que `validate_warmup`.
+- **Captura por observer, no por snapshot:** las SMAs de LEAN solo guardan el valor actual, así
+  que los "últimos 5 puntos" se capturan con un handler extra sobre `data_consolidated` de cada
+  consolidator (deque `maxlen=5` por serie), alimentado en streaming durante el warmup. Costo
+  ~cero y sin tocar la matemática.
+- **Nuevo accessor `SymbolData.consolidator(tf)`** (L2): expone el consolidator construido por
+  timeframe ('D' = raíz; KeyError con los construidos si no existe). Necesario porque los W/M
+  encadenados eran privados. Cubierto por test nuevo que además fija la **garantía de orden**
+  de la que depende el recorder: un handler añadido DESPUÉS de construir `SymbolData` ve la SMA
+  ya actualizada (orden de handlers .NET = orden de suscripción) — `32 passed`.
+- **Escritura en `on_warmup_finished` DESPUÉS del flush** (tal como anticipó T2.2): así el
+  archivo incluye la barra M de diciembre (end `2016-01-01`) y la W de la última semana
+  (end `2016-01-04`), que sin flush quedarían retenidas.
+- **`<fecha>` = fecha del algoritmo** (`self.time`, no wallclock): el nombre refleja el "as of"
+  de la data (`sma_validation_20160104.csv`), que es lo que el usuario alineará en TradingView
+  (T7.2 usará data Stooq reciente → fecha actual).
+- El recorder sigue capturando en runtime tras el warmup (inofensivo: el archivo ya se escribió);
+  los puntos de runtime quedarían en los deques si en el futuro se quisiera re-escribir al cierre.
+
+### Verificación (criterio de T3)
+
+- `storage/validation/sma_validation_20160104.csv` existe y es legible (CSV plano, 2.3 KB),
+  escrito vía `self.object_store.save()`. Log:
+  `[validation] validation/sma_validation_20160104.csv: 9 series, 45 filas`.
+- **5 filas × 9 series** (D/W/M × 8/20/200) con valores no nulos para SPY; `bars_consumed`
+  exacto (D: 4217→4221; W: 872→876; M: 198→202 — M:200 ready con margen 2).
+- **Convención de fechas verificada en el contenido** (C4: `bar_end_time` = inicio del periodo
+  siguiente):
+  - D: medianoche del día siguiente a la sesión, con huecos correctos de festivos
+    (12-24→`12-25`, salta Navidad+finde a 12-28→`12-29`).
+  - W: todos lunes (`12-07/12-14/12-21/12-28/01-04`) = lunes→domingo, cierre efectivo viernes.
+  - M: primeros de mes (`09-01…01-01`) = mes calendario.
+  - Cross-consistencia: close W de la semana al 12-28 (205.65) == close D de la sesión 12-24 ✓.
+- `bash scripts/run_tests.sh` → **32 passed** (test nuevo del accessor + orden de handlers).
+
+### Pendiente
+
+- **T4** (siguiente, cierra F1): congelar las SMAs de SPY-zip como fixture de regresión
+  interino en `tests/` — los valores del archivo de hoy (p. ej. D:8@2016-01-01 = 204.925,
+  W:200@2016-01-04 = 177.5696, M:200@2016-01-01 = 133.415) son los candidatos a congelar.
+- La interpretación de fechas para el usuario en T7.2 (ej. fila D end `2016-01-01` = sesión
+  del 12-31 en TradingView) quedó documentada en el docstring de `_write_validation_file`.

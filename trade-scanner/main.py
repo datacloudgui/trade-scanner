@@ -2,6 +2,7 @@
 from AlgorithmImports import *
 
 import json
+from collections import deque
 from time import perf_counter
 
 import core
@@ -91,6 +92,23 @@ class Tradescanner(QCAlgorithm):
             declared = ", ".join(f"{tf}:{p}" for tf, p in sorted(sd.declared))
             self.log(f"[{ticker}] SymbolData listo (series: {declared})")
 
+        # T3 — recorder de validación (flag sma_validation, pensado para dev): captura
+        # los últimos K=5 puntos (barra consolidada, SMA) por serie; el archivo se
+        # escribe al cerrar el warmup (on_warmup_finished, tras el flush).
+        self._validation_rows: dict[tuple[Symbol, str, int], deque] = {}
+        if env_cfg.get("sma_validation", False):
+            for symbol, sd in self.symbol_data.items():
+                for tf in sorted(sd.timeframes):
+                    periods = tuple(sorted(p for t, p in sd.declared if t == tf))
+                    if not periods:
+                        continue  # la raíz D existe aunque no declare series
+                    for period in periods:
+                        self._validation_rows[(symbol, tf, period)] = deque(maxlen=5)
+                    sd.consolidator(tf).data_consolidated += (
+                        lambda _s, bar, sym=symbol, t=tf, ps=periods:
+                            self._record_validation(sym, t, ps, bar)
+                    )
+
         # Ancla de calendario para las time-rules: SPY del universo si está suscrito;
         # si no (prod), suscripción propia. Provee data (avanza el reloj) y market hours.
         spy = next((s for s in self.symbol_data if s.value == "SPY"), None)
@@ -173,6 +191,9 @@ class Tradescanner(QCAlgorithm):
         if self._gate_enabled and self._warmup_depth:
             self._run_warmup_gate()
 
+        if self._validation_rows:
+            self._write_validation_file()
+
     def _run_warmup_gate(self) -> None:
         """Gate D4 (bajo flag validate_warmup): la ruta manual de 5A — history[TradeBar] tipado en UNA
         llamada batch + update por barra + scan de cierre — sobre SymbolData sombra
@@ -233,6 +254,41 @@ class Tradescanner(QCAlgorithm):
                 f"[{symbol.value}] feed daily→consolidator {status}: "
                 f"{received} recibidas, {consolidated} consolidadas{tail}"
             )
+
+    def _record_validation(
+        self, symbol: Symbol, tf: str, periods: tuple, bar: TradeBar
+    ) -> None:
+        """Punto de validación por barra consolidada. La SMA ya está actualizada cuando
+        este handler corre (orden de handlers .NET = orden de suscripción; cubierto
+        por test del accessor)."""
+        sd = self.symbol_data[symbol]
+        for period in periods:
+            sma = sd.sma(tf, period)
+            self._validation_rows[(symbol, tf, period)].append(
+                (bar.end_time, bar.close, sma.current.value, sma.samples)
+            )
+
+    def _write_validation_file(self) -> None:
+        """T3: últimos K=5 puntos por serie → validation/sma_validation_<fecha>.csv vía
+        ObjectStore (storage/validation/ en local). bar_end_time sigue la convención de
+        LEAN (C4): cae al inicio del periodo siguiente (W lunes→domingo con cierre
+        efectivo viernes; M mes calendario)."""
+        lines = ["ticker,timeframe,period,bar_end_time,bar_close,sma_value,bars_consumed"]
+        for symbol, tf, period in sorted(
+            self._validation_rows, key=lambda k: (k[0].value, k[1], k[2])
+        ):
+            for end_time, close, sma_value, samples in (
+                self._validation_rows[(symbol, tf, period)]
+            ):
+                lines.append(
+                    f"{symbol.value},{tf},{period},{end_time},{close},{sma_value},{samples}"
+                )
+        key = f"validation/sma_validation_{self.time:%Y%m%d}.csv"
+        self.object_store.save(key, "\n".join(lines) + "\n")
+        self.log(
+            f"[validation] {key}: {len(self._validation_rows)} series, "
+            f"{len(lines) - 1} filas (K=5 últimos puntos por serie)"
+        )
 
     def _count_consolidated(self, symbol: Symbol) -> None:
         self._daily_consolidated[symbol] += 1
