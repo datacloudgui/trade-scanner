@@ -246,6 +246,20 @@ sma_evidence (valor + distancia % por cada SMA evaluada), passed_rules (lista se
 **Estado:** pendiente
 **Objetivo:** Fase 1 cerrada con los 6 criterios DONE WHEN del SPECS verificados
 **Depende de:** Etapa 8
+
+> ⚠️ **Prerrequisito bloqueante — resolver ANTES de iniciar esta etapa**
+>
+> `lean live "Screener"` con Alpaca y `lean data download` requieren credenciales QC
+> y una org con licencia `AlpacaBrokerage` (plan Researcher mínimo). Sin esto, ambos
+> comandos fallan al intentar instalar el módulo NuGet del brokerage.
+>
+> Opciones documentadas en [ADR-002](.claude/decisions/ADR-002-qc-module-auth-constraint.md):
+> - **A** — Suscripción QC Researcher (pago, flujo estándar)
+> - **B** — Compilar módulo Alpaca desde su repo open source y montarlo en Docker ($0, más frágil)
+> - **C** — Script de descarga directa desde API REST de Alpaca para datos históricos ($0, solo resuelve datos, no `lean live`)
+>
+> Elegir y documentar la opción antes de arrancar.
+
 **Alcance:**
 - Backtest 6–12 meses; revisar watchlists de fechas conocidas manualmente.
 - `lean live "Screener"` paper local con Alpaca: una sesión completa, verificar ambos scans, working bar real, salida y logs.

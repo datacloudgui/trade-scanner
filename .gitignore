@@ -1,3 +1,9 @@
+# LEAN project outputs (no versionar resultados de backtest ni IDE)
+**/backtests/
+**/.idea/
+**/.vscode/
+**/research.ipynb
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -146,6 +152,10 @@ activemq-data/
 
 # SageMath parsed files
 *.sage.py
+
+# LEAN workspace
+data/*
+!data/object-store/
 
 # Environments
 .env
