@@ -1,6 +1,44 @@
 {
+  "environments": {
+    "dev":  { "top_n": 5, "max_universe": 10 },
+    "prod": { "top_n": 50, "max_universe": 200 }
+  },
   "strategies": {
-    "swing_eod":    { "universe": "swing", "schedule": "after_close" },
-    "market_close": { "universe": "swing", "schedule": "before_close_30m" }
+    "swing_eod": {
+      "universe": "swing_advances",
+      "direction": "long",
+      "main_timeframe": "W",
+      "timeframes": { "D": [8, 20], "W": [8, 20], "M": [8, 20] },
+      "schedule": "after_close",
+      "universe_filter": "avg_vol_5d > 1e6 and price > 5",
+      "max_extension_pct": 0.10
+    },
+    "swing_eod_short": {
+      "universe": "swing_declines",
+      "direction": "short",
+      "main_timeframe": "W",
+      "timeframes": { "D": [8, 20], "W": [8, 20], "M": [8, 20] },
+      "schedule": "after_close",
+      "universe_filter": "avg_vol_5d > 1e6 and price > 5",
+      "max_extension_pct": 0.10
+    },
+    "market_close": {
+      "universe": "swing_advances",
+      "direction": "long",
+      "main_timeframe": "W",
+      "timeframes": { "D": [8, 20], "W": [8, 20], "M": [8, 20] },
+      "schedule": "before_close_30m",
+      "universe_filter": "avg_vol_5d > 1e6 and price > 5",
+      "max_extension_pct": 0.10
+    },
+    "market_close_short": {
+      "universe": "swing_declines",
+      "direction": "short",
+      "main_timeframe": "W",
+      "timeframes": { "D": [8, 20], "W": [8, 20], "M": [8, 20] },
+      "schedule": "before_close_30m",
+      "universe_filter": "avg_vol_5d > 1e6 and price > 5",
+      "max_extension_pct": 0.10
+    }
   }
 }

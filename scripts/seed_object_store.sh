@@ -1,35 +1,81 @@
 #!/usr/bin/env bash
-# seed_object_store.sh — Siembra la config de negocio versionada al ObjectStore local.
+# seed_object_store.sh — Siembra config y universos al ObjectStore local.
 #
-# POR QUÉ: la config de estrategias (umbrales, horarios, universos, timeframes) vive en
-#   config/strategies.json y se lee en runtime vía self.object_store, NO desde el
-#   config.json del proyecto ni get_parameter. Ver PLAN.md §4 y etapa-02.md (T3).
+# POR QUÉ: la config de estrategias y los CSVs de universo viven en config/ y
+#   data/object-store/ respectivamente, y se leen en runtime vía self.object_store.
+#   El ObjectStore local del CLI es <workspace>/storage/ (montado en /Storage dentro
+#   de Docker). Ver PLAN.md §4 y CLAUDE.md (gotchas Etapa 2).
 #
-# DÓNDE: el ObjectStore local del CLI de LEAN es <workspace>/storage/ (se monta en
-#   /Storage dentro de Docker; ver lean_runner.py: storage_dir = cli_root/"storage").
-#   NO es data/object-store/ (eso era una suposición incorrecta de Etapa 1). El root
-#   mapea cada key a una ruta relativa, así que la key "config/strategies.json" se lee
-#   desde storage/config/strategies.json. Por eso se preserva el prefijo config/.
+# QUÉ HACE:
+#   1. config/*.json   → storage/config/   (idempotente, siempre)
+#   2. data/object-store/*-advances-*.csv más reciente (no en processed/)
+#      → storage/universes/swing_advances.csv + mueve fuente a processed/
+#   3. data/object-store/*-declines-*.csv más reciente (no en processed/)
+#      → storage/universes/swing_declines.csv + mueve fuente a processed/
 #
-# QUÉ COPIA: config/*.json -> storage/config/  (en etapas futuras también
-#   universes/*.csv -> storage/universes/).
+# Si no hay archivos nuevos (todos ya en processed/), avisa pero no falla:
+#   el archivo previo en storage/universes/ permanece intacto.
 #
-# IDEMPOTENTE: cp sobrescribe; la fuente versionada en config/ es la verdad, la copia
-#   sembrada se regenera y NO se versiona.
+# IDEMPOTENTE para config: cp sobrescribe. Para universos: un archivo fuente
+#   se procesa una sola vez (luego vive en processed/).
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE="$(cd "$SCRIPT_DIR/.." && pwd)"
 SRC_CONFIG="$WORKSPACE/config"
+DATA_DIR="$WORKSPACE/data/object-store"
+PROCESSED_DIR="$DATA_DIR/processed"
 DEST="$WORKSPACE/storage"
 
-echo "Sembrando config -> ObjectStore local ($DEST)"
+echo "Sembrando ObjectStore local ($DEST)"
+echo ""
 
+# --- 1. config/*.json → storage/config/ ---
 mkdir -p "$DEST/config"
 for f in "$SRC_CONFIG"/*.json; do
   cp "$f" "$DEST/config/$(basename "$f")"
-  echo "  $(basename "$f") -> config/$(basename "$f")"
+  echo "  [config] $(basename "$f") → config/$(basename "$f")"
 done
 
+echo ""
+
+# --- 2 & 3. CSVs de universo ---
+mkdir -p "$DEST/universes"
+mkdir -p "$PROCESSED_DIR"
+
+seed_universe() {
+  local type="$1"       # "advances" o "declines"
+  local dest_key="$2"   # "swing_advances" o "swing_declines"
+
+  # Seleccionar el CSV más reciente no archivado (sort por nombre = sort por fecha en el nombre).
+  # find en lugar de ls+glob para que set -eo pipefail no aborte cuando no hay archivos.
+  local src
+  src=$(find "$DATA_DIR" -maxdepth 1 -name "*-${type}-*.csv" 2>/dev/null | sort | tail -1)
+
+  if [[ -z "$src" ]]; then
+    echo "  [universos] ADVERTENCIA: no hay archivos *-${type}-*.csv en $DATA_DIR"
+    if [[ -f "$DEST/universes/${dest_key}.csv" ]]; then
+      echo "  [universos] Usando archivo previo en storage/universes/${dest_key}.csv (sin cambios)"
+    else
+      echo "  [universos] No existe archivo previo en storage/universes/${dest_key}.csv"
+    fi
+    return 0
+  fi
+
+  local filename
+  filename="$(basename "$src")"
+  local lines
+  lines=$(wc -l < "$src")
+
+  cp "$src" "$DEST/universes/${dest_key}.csv"
+  mv "$src" "$PROCESSED_DIR/$filename"
+
+  echo "  [universos] $filename → universes/${dest_key}.csv ($lines líneas) → archivado en processed/"
+}
+
+seed_universe "advances" "swing_advances"
+seed_universe "declines" "swing_declines"
+
+echo ""
 echo "Listo."

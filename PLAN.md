@@ -93,19 +93,58 @@ Cada estrategia declara qué necesita; el orquestador construye lo mínimo. La c
 - `working_bar` del consolidator diario expone el OHLC parcial del día en curso para scans intradía (suscripción `Resolution.MINUTE`).
 - SMAs estables intradía: los indicadores solo se actualizan al cierre de su barra; el scan intradía compara precio actual (working bar) vs medias del último cierre.
 
-## 5. Contratos de datos EN DEFINICION
+## 5. Contratos de datos (definitivos — ratificados en Etapa 3)
 
-**CSV de universo** (mínimo; columnas extra se ignoran salvo que el filtro las use):
-```csv
-ticker,price,avg_dollar_volume
-AAPL,232.5,1.2e10
-```
-Filtro simple declarativo en config: ej. `"universe_filter": "price > 5 and avg_dollar_volume > 5e6"`. Tope duro: 200 tickers post-filtro.
+### Contrato de entrada: CSV Barchart
 
-**ScanResult** (una fila por candidato, serializa a CSV y JSON):
-```
-strategy, as_of (UTC), ticker, partial_bar (bool), day_change_pct,
-sma_evidence (valor y distancia % por cada SMA evaluada), passed_rules (lista)
+Fuente: Barchart.com, exportado manualmente. Formato de nombre: `5-day-all-us-exchanges-percent-change-{tipo}-{MM-DD-YYYY}.csv`.
+Claves ObjectStore: `universes/swing_advances.csv` (advances/longs) y `universes/swing_declines.csv` (declines/shorts).
+
+| Campo original | Alias normalizado | Tipo   | Notas de parsing                            |
+|----------------|-------------------|--------|---------------------------------------------|
+| `Symbol`       | `ticker`          | string | Validar `^[A-Z]{1,5}$`; footer → descartar  |
+| `Name`         | `name`            | string | Informativo; no usado en reglas             |
+| `5D %Chg`      | `pct_chg_5d`      | float  | Strip `+`/`%`; dividir / 100               |
+| `Latest`       | `price`           | float  | Precio de cierre del último día del período |
+| `Change`       | `chg_1d`          | float  | Cambio absoluto 1D                          |
+| `%Change`      | `pct_chg_1d`      | float  | Strip `+`/`%`; dividir / 100               |
+| `5D Chg`       | `chg_5d`          | float  | Cambio absoluto 5D                          |
+| `5D High`      | `high_5d`         | float  | Máximo del período                          |
+| `5D Low`       | `low_5d`          | float  | Mínimo del período                          |
+| `5D Avg Vol`   | `avg_vol_5d`      | float  | Ya numérico (sin comas)                     |
+| `Time`         | `date`            | string | Fecha de exportación (`YYYY-MM-DD`)         |
+
+Reglas de parsing:
+- Footer strip: fila con `Symbol` no coincidente con `^[A-Z]{1,5}$` → descartar siempre.
+- Columnas extra futuras: ignoradas si no están en el alias map.
+- Filtro declarativo usa **alias normalizados**: `"avg_vol_5d > 1e6 and price > 5"`.
+- Normalización (rename de columnas) ocurre en `UniverseSpec` (Etapa 4); el CSV en ObjectStore se guarda tal cual (con footer incluido).
+- Tope duro: 200 tickers post-filtro.
+
+### Contrato de salida: `ScanResult`
+
+Una fila/objeto por candidato; serializa a CSV y JSON.
+
+| Campo                   | Tipo CSV        | Tipo JSON        | Descripción                                                      |
+|-------------------------|-----------------|------------------|------------------------------------------------------------------|
+| `strategy`              | string          | string           | Nombre de la estrategia (ej. `swing_eod`)                       |
+| `as_of`                 | ISO 8601 UTC    | ISO 8601 UTC     | Timestamp del scan                                               |
+| `ticker`                | string          | string           | Símbolo (de `Symbol` del CSV)                                   |
+| `direction`             | `long`/`short`  | string           | Dirección de la estrategia                                       |
+| `partial_bar`           | `True`/`False`  | bool             | `True` si el precio viene del working bar (intraday)            |
+| `price`                 | float           | float            | Precio usado: close o working_bar.close                         |
+| `time_frames_evaluated` | `D,W,M`         | `["D","W","M"]`  | Timeframes evaluados por esta estrategia                        |
+| `sma_evidence`          | JSON string     | object           | `{tf: {period: {value, dist_pct}}}` — ver ejemplo               |
+| `passed_rules`          | pipe-separated  | array of string  | Reglas que pasaron (ej. `AboveSMA20\|NotExtended`)               |
+| `rules_passed_count`    | int             | int              | Conteo de reglas que pasaron; usado como score de ranking        |
+
+Ejemplo `sma_evidence`:
+```json
+{
+  "D": {"20": {"value": 150.20, "dist_pct": 2.31}},
+  "W": {"20": {"value": 148.50, "dist_pct": 3.52}},
+  "M": {"20": {"value": 145.00, "dist_pct": 5.86}}
+}
 ```
 
 ## 6. Estrategia de referencia
@@ -170,34 +209,30 @@ Variante losers: top N negativos, reglas propias (placeholder, sin reglas en V1)
 > **Cierre (commit `[Etapa 2]`):** `market_close` dispara 15:30 y `swing_eod` 16:01 (verificado en log); config leída de `storage/config/strategies.json`; `run_tests.sh` verde (`1 passed`). Hallazgos y decisiones reversibles en [.claude/fase-1-desarrollo-local/etapa-02-decisiones-y-pendientes.md](.claude/fase-1-desarrollo-local/etapa-02-decisiones-y-pendientes.md).
 
 ## Etapa 3 — Exploración y contrato del archivo de entrada
-**Estado:** pendiente
+**Estado:** completada
 **Objetivo:** CSV de universo real perfilado, contratos fijados y CSV sembrado en ObjectStore
 **Depende de:** Etapa 2
 **Alcance:**
 - `scripts/explore_universe.py` sobre el CSV real: columnas, tipos, nulos, duplicados, tickers inválidos/no-US, rangos de price y volumen, conteo post-filtro.
-- Confirmar o ajustar los contratos de datos borrador (abajo) con base en lo observado; actualizar este archivo.
-- `scripts/seed_object_store.sh`: copiar CSV validado a `storage/universes/swing.csv`.
+- Confirmar o ajustar los contratos de datos borrador con base en lo observado; actualizar este archivo.
+- `config/strategies.json`: sección `environments`, 4 estrategias con `direction`, `main_timeframe`, `timeframes`, `universe_filter`, `max_extension_pct`.
+- `lean.json`: agregar `"parameters": {"env": "dev"}`.
+- `scripts/seed_object_store.sh`: soporte para CSVs datados + archivo a `processed/`.
 
-**Contrato CSV de universo — BORRADOR (confirmar en esta etapa):**
-```
-ticker,price,avg_dollar_volume,[columnas_extra_ignoradas]
-AAPL,232.5,1200000000
-```
-- Columnas mínimas requeridas: `ticker`, `price`, `avg_dollar_volume`.
-- Columnas extra permitidas; se ignoran salvo que `universe_filter` las referencie.
-- Filtro declarativo en `config/strategies.json` (ObjectStore): string evaluable, ej. `"price > 5 and avg_dollar_volume > 5e6"`.
-- Tope duro: 200 tickers post-filtro.
-
-**Contrato ScanResult — BORRADOR (confirmar en esta etapa):**
-```
-strategy, as_of (UTC), ticker, partial_bar (bool), day_change_pct,
-sma_evidence (valor + distancia % por cada SMA evaluada), passed_rules (lista separada por |)
-```
+**Contratos de datos:** ver §5 (ratificados en esta etapa — el borrador quedó reemplazado por las tablas definitivas).
 
 **Done when:**
-- [ ] Reporte de exploración del CSV generado y revisado
-- [ ] Contratos de datos actualizados y aprobados (columnas reales, no borrador)
-- [ ] CSV validado y sembrado en ObjectStore local
+- [x] `python scripts/explore_universe.py <path>` produce reporte completo para ambos CSVs sin errores
+- [x] Reporte revisado y aprobado (hallazgos sin sorpresas que rompan el contrato)
+- [x] PLAN.md §5 actualizado: contrato de entrada definitivo (alias map, parsing, footer, dos claves)
+- [x] PLAN.md §5 actualizado: contrato de salida `ScanResult` definitivo (campos, tipos, ejemplo)
+- [x] `config/strategies.json` tiene `environments` + 4 estrategias con `direction` y `universe_filter` correcto
+- [x] `lean.json` tiene `"parameters": {"env": "dev"}`
+- [x] `bash scripts/seed_object_store.sh` siembra `strategies.json` + `swing_advances.csv` + `swing_declines.csv`; mueve fuentes a `processed/`
+- [x] `storage/universes/swing_advances.csv` y `swing_declines.csv` existen con ~200 filas; archivos movidos a `data/object-store/processed/`
+- [x] `lean backtest "trade-scanner"` corre sin errores; las 4 estrategias loguearon a sus horas (15:30 y 16:01)
+
+> **Cierre (commit `[Etapa 3]`):** perfilado confirma contrato sin sorpresas (200 datos + 1 footer, 11 columnas, mediana vol ~995K); filtro combinado `avg_vol_5d > 1M AND price > 5` deja 74 advances / 68 declines. Contratos definitivos en §5. 4 estrategias en `strategies.json` (2 long + 2 short placeholder) + `environments` dev/prod. `seed_object_store.sh` actualizado con glob datado y archivo a `processed/`. Backtest confirma las 4 estrategias disparando. Decisiones y pendientes en [.claude/fase-1-desarrollo-local/etapa-03-decisiones-y-pendientes.md](.claude/fase-1-desarrollo-local/etapa-03-decisiones-y-pendientes.md).
 
 ## Etapa 4 — UniverseSpec
 **Estado:** pendiente

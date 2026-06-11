@@ -156,6 +156,10 @@ activemq-data/
 # LEAN workspace
 data/*
 !data/object-store/
+# CSVs de Barchart: nunca versionar; el directorio object-store/ se expone (excepción arriba)
+# pero los CSVs descargados y la carpeta processed/ se ignoran explícitamente.
+data/object-store/*.csv
+data/object-store/processed/
 # ObjectStore real del CLI (raíz montada en /Storage): copia sembrada regenerable
 # con scripts/seed_object_store.sh — la fuente versionada vive en config/. Ver Etapa 2.
 storage/
