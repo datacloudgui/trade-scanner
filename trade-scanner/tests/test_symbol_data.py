@@ -164,3 +164,55 @@ def test_t3_8_empty_period_set_builds_nothing():
 def test_t3_8_unknown_timeframe_raises_keyerror_naming_it():
     with pytest.raises(KeyError, match="X"):
         SymbolData(SPY, {"X": {8}})
+
+
+# --- T3.9 — equivalencia de rutas (des-riesga 5B): warmup daily vs runtime minute ---
+
+# 2 semanas completas (8–12 y 15–19 ene) + lunes 22 para que la semana 2 emita
+EQUIV_DAYS = [(2024, 1, d) for d in (8, 9, 10, 11, 12, 15, 16, 17, 18, 19, 22)]
+
+
+def assert_bars_identical(a, b):
+    assert a.time == b.time and a.end_time == b.end_time
+    assert (float(a.open), float(a.high), float(a.low), float(a.close), float(a.volume)) == (
+        float(b.open), float(b.high), float(b.low), float(b.close), float(b.volume)
+    )
+
+
+def test_t3_9_daily_and_minute_routes_produce_identical_state():
+    requirements = {"D": {3}, "W": {2}}
+    sd_daily = SymbolData(SPY, requirements)    # ruta (a): warmup con barras diarias
+    sd_minute = SymbolData(SPY, requirements)   # ruta (b): runtime con barras minute
+    d_a, d_b = collect(sd_daily.daily_consolidator), collect(sd_minute.daily_consolidator)
+    w_a, w_b = collect(sd_daily._chained["W"]), collect(sd_minute._chained["W"])
+
+    for i, (y, m, d) in enumerate(EQUIV_DAYS):
+        # OHLCV variado y coherente: H > C > O > L, volumen distinto por día
+        o, h, lo, c, v = 100 + i, 105 + i, 97 + i, 102 + i, 100 + 10 * i
+        sd_daily.update(daily_bar(y, m, d, o, h, lo, c, v))
+        # 3 minutos que agregan exactamente al mismo OHLCV: open=1ª, H/L en la del
+        # mediodía, close=última, volúmenes 30+40+(v-70)=v
+        sd_minute.update(TradeBar(datetime(y, m, d, 9, 31), SPY, o, o, o, o, 30, timedelta(minutes=1)))
+        sd_minute.update(TradeBar(datetime(y, m, d, 12, 0), SPY, o, h, lo, c, 40, timedelta(minutes=1)))
+        sd_minute.update(TradeBar(datetime(y, m, d, 15, 59), SPY, c, c, c, c, v - 70, timedelta(minutes=1)))
+
+    flush = datetime(2024, 1, 23)
+    sd_daily.scan(flush)
+    sd_minute.scan(flush)
+
+    # mismas barras diarias emitidas (la ruta minute las construye, la daily las pasa)
+    assert len(d_a) == len(d_b) == len(EQUIV_DAYS)
+    for bar_a, bar_b in zip(d_a, d_b):
+        assert_bars_identical(bar_a, bar_b)
+    # mismas barras W: 2 emitidas; la semana del 22 queda en working (sin emitir) en ambas
+    assert len(w_a) == len(w_b) == 2
+    for bar_a, bar_b in zip(w_a, w_b):
+        assert_bars_identical(bar_a, bar_b)
+    assert w_a[0].end_time == datetime(2024, 1, 15) and w_a[1].end_time == datetime(2024, 1, 22)
+    # SMAs finales idénticas (igualdad exacta, no aproximada) y calientes en ambas rutas
+    assert sd_daily.is_ready() and sd_minute.is_ready()
+    for tf, period in (("D", 3), ("W", 2)):
+        sma_a, sma_b = sd_daily.sma(tf, period), sd_minute.sma(tf, period)
+        assert int(sma_a.samples) == int(sma_b.samples)
+        assert float(sma_a.current.value) == float(sma_b.current.value)
+        assert sma_a.current.end_time == sma_b.current.end_time

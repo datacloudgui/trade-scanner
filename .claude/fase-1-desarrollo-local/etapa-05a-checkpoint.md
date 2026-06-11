@@ -5,6 +5,20 @@
 
 ---
 
+## Sesión 4 (2026-06-11) — T3.9: equivalencia de rutas daily vs minute
+
+### Alcance
+Solo **T3.9** (pedido del usuario). Test en `tests/test_symbol_data.py`: dos `SymbolData` idénticos, ruta (a) barras diarias directas vs ruta (b) 3 minutos/día (open/mid/close) que agregan al mismo OHLCV. Identidad EXACTA exigida: 11 barras diarias emitidas, 2 barras W (OHLCV+time/end_time) y SMAs finales D:3 y W:2. Flush con el mismo `scan(time)` en ambas rutas.
+
+### Checkpoints sesión 4
+
+- [x] CP1 — Test T3.9 escrito (datos variados por día: O=100+i, H=105+i, L=97+i, C=102+i, V=100+10i; minutos 9:31/12:00/15:59 con volúmenes 30/40/V-70; identidad exacta en 11 barras D + 2 barras W + SMAs D:3 y W:2)
+- [x] CP2 — `bash scripts/run_tests.sh` verde a la primera: **29 passed** (28 previos + T3.9). La equivalencia se cumple con identidad exacta — el consolidator diario normaliza `time`/`end_time` (redondeo a 00:00), así que la barra construida de minutos es bit-idéntica a la diaria directa, y la cadena W hereda la identidad.
+- [x] CP3 — Done-when de equivalencia marcados (etapa-05a.md + PLAN.md §5A); estado → T3.1–3.9 ✅, faltan T3.10–T3.11
+- [x] CP4 — Commit `[Etapa 5A] T3.9` (este commit)
+
+---
+
 ## Sesión 3 (2026-06-11) — T3 parcial: tests T3.1–T3.8
 
 ### Alcance
@@ -79,12 +93,11 @@ Solo **T2** según D3/D4 del spec: `SymbolData` con cadena minute→daily→W/M,
 
 ## Pendientes de la Etapa 5A (estado al cierre de la sesión 3)
 
-- ~~T2~~ ✅ (sesión 2) · ~~T3.1–T3.8~~ ✅ (sesión 3, 28 passed).
-- **T3.9–T3.11** — lo único que falta de la etapa (en `tests/test_symbol_data.py`):
-  - **T3.9 equivalencia de rutas** (esfuerzo `xhigh`): mismos días como (a) barras diarias directas y (b) ~3 minutos/día → barras W y SMAs idénticas por ambas rutas. Usar dos instancias de `SymbolData` y comparar; flush final con `scan` (funciona también en calendario, hallazgo sesión 3).
+- ~~T2~~ ✅ (sesión 2) · ~~T3.1–T3.8~~ ✅ (sesión 3, 28 passed) · ~~T3.9~~ ✅ (sesión 4, 29 passed — equivalencia con identidad exacta).
+- **T3.10–T3.11** — lo único que falta de la etapa (en `tests/test_symbol_data.py`):
   - **T3.10 working bar** (ya cubierto ad-hoc en sesión 2: open 1ª/high máx/low mín/close última + None inicial — formalizar como pytest).
   - **T3.11 readiness**: `is_ready("W", 20)` falso con 19 barras W / verdadero con 20; `is_ready()` agregado refleja la serie más lenta. Ojo: generar 20 semanas (~101 barras diarias) — usar helper con `timedelta`.
-  - Helpers ya disponibles en el archivo: `daily_bar`, `flat_day`, `collect`, `push_week`, SPY vía `generate_equity(..., False)`.
+  - Helpers ya disponibles en el archivo: `daily_bar`, `flat_day`, `collect`, `push_week`, `assert_bars_identical`, SPY vía `generate_equity(..., False)`.
 - **Al cerrar la etapa** (tras T3.9–11): marcar Done-when restantes, PLAN.md §5A Estado → `completada`, borrar este checkpoint. **Resolver mismatch de redacción**: el Done-when de PLAN.md "`plan_warmup()` excluye series sobre presupuesto **con warning**" — la exclusión está testeada (T3.3) pero el warning lo emite el llamador (main.py, 5B por D2); proponer al usuario marcarlo como está o ajustar la redacción.
 - **Fuera de la etapa (sigue pendiente de decisión del usuario):** `config/strategies.json` modificado sin commitear (dev: top_n 5→2, max_universe 10→2) — confirmar si es intencional; `.DS_Store` (ruido macOS, considerar gitignore).
 

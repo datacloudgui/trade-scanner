@@ -262,7 +262,7 @@ Variante losers: top N negativos, reglas propias (placeholder, sin reglas en V1)
 - [x] Solo se crean los consolidators/indicadores de la unión de timeframes declarados (verificado por test)
 - [x] Profundidad de warmup derivada por fórmula generalizada; un timeframe nuevo se registra sin tocar la fórmula (verificado por test)
 - [ ] `plan_warmup()` excluye series sobre presupuesto con warning (verificado por test)
-- [ ] Equivalencia de rutas de alimentación daily directo vs minute encadenado (verificado por test)
+- [x] Equivalencia de rutas de alimentación daily directo vs minute encadenado (verificado por test)
 - [x] `core/symbol_data.py` no referencia la instancia de `QCAlgorithm` (tipos de `AlgorithmImports` sí permitidos)
 
 ## Etapa 5B — Warmup integrado + datos de muestra + validación de precisión
