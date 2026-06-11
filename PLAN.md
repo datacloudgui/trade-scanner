@@ -248,25 +248,45 @@ Variante losers: top N negativos, reglas propias (placeholder, sin reglas en V1)
 
 > **Cierre (commit `[Etapa 4]`):** `core/universe.py` implementado con `COLUMN_ALIASES`, footer strip (`^[A-Z]{1,5}$`), filtro declarativo vía `df.query()`, orden alfabético y tope duro. Sin imports de `AlgorithmImports`. `main.py` integrado: 4 líneas `universe loaded: N tickers (env=..., max=..., key=...)` en `initialize()`; conteos 74 advances / 68 declines en prod, 2 en dev. 6 tests verdes en Docker (`bash scripts/run_tests.sh`). **Hallazgo D-E4:** `self.get_parameter()` lee parámetros escalares desde `trade-scanner/config.json["parameters"]`, NO desde `lean.json["parameters"]` (el campo en `lean.json` es configuración del engine, no del algoritmo). El parámetro `env` vive en `trade-scanner/config.json`. Decisiones y pendientes en [.claude/fase-1-desarrollo-local/etapa-04-decisiones-y-pendientes-md](.claude/fase-1-desarrollo-local/etapa-04-decisiones-y-pendientes-md).
 
-## Etapa 5 — TimeframeSpec + SymbolData + warmup (etapa crítica)
-**Estado:** pendiente
-**Objetivo:** consolidators e indicadores construidos dinámicamente según los timeframes declarados por estrategia, con warmup derivado y preciso
+## Etapa 5A — TimeframeSpec + SymbolData (lógica y tests sintéticos)
+**Estado:** en progreso
+**Objetivo:** consolidators e indicadores construidos dinámicamente según los timeframes declarados, con fórmula de warmup generalizada (registro extensible, no D/W/M hardcodeado) y plan de warmup con presupuesto — verificable 100% por tests en Docker
 **Depende de:** Etapa 4
+**Spec detallado:** [.claude/fase-1-desarrollo-local/etapa-05a.md](.claude/fase-1-desarrollo-local/etapa-05a.md)
 **Alcance:**
-- `core/timeframes.py`: mapeo D/W/M → consolidator LEAN (`TradeBarConsolidator` diario, `Calendar.WEEKLY`, `Calendar.MONTHLY`) + fórmula de warmup §4.
-- `core/symbol_data.py`: construye consolidators e indicadores SOLO para la unión de timeframes requeridos; `register_indicator`; expone `working_bar`; warmup empujando `self.history` (batch, no por símbolo en loop) a los consolidators.
-- Tests unitarios: consolidators e indicadores standalone alimentados con TradeBars sintéticos (semana que cierra viernes, mes calendario, SMA con valores conocidos a mano).
-- Validación de precisión: para 5 símbolos de muestra, comparar SMA20 D/W/M post-warmup contra valores de referencia de la plataforma de charting acordada; tolerancia documentada.
+- `core/timeframes.py`: registro declarativo `TimeframeSpec` (resolución fuente, barras por periodo, buffer, factory de consolidator) + `warmup_bars(n)` generalizada (§4) + `plan_warmup()` con presupuesto por resolución (`warmup_budget`): series sobre presupuesto quedan excluidas con warning — habilita SMA 200 condicional en el marco mayor según proveedor de datos.
+- `core/symbol_data.py`: construye consolidators e indicadores SOLO para la unión de timeframes requeridos; SMAs cableadas al evento `data_consolidated` del consolidator (mismo mecanismo interno de `register_indicator`, sin instancia del algorithm — compatible QC cloud, decisión D3 del spec); cadena minute→daily→W/M con un solo punto de entrada `update(bar)`; expone `working_bar` e `is_ready`.
+- Tests unitarios con TradeBars sintéticos: semana que cierra viernes, mes calendario, SMA con valores a mano, primera barra parcial, unión exacta, profundidades D/W/M × {8, 20, 200}, timeframe intradía nuevo sin tocar la fórmula, equivalencia de rutas de alimentación (warmup daily vs runtime minute), working bar, presupuesto.
 **Done when:**
-- [ ] Tests unitarios de consolidators/indicadores con barras sintéticas verdes
+- [ ] Tests unitarios de consolidators/indicadores con barras sintéticas verdes (`bash scripts/run_tests.sh`)
 - [ ] Solo se crean los consolidators/indicadores de la unión de timeframes declarados (verificado por test)
-- [ ] Profundidad de warmup derivada por fórmula §4, no fija (verificado por test)
-- [ ] Validación de precisión de SMAs contra plataforma de referencia registrada en `tests/` (criterio nº1 del SPECS)
+- [ ] Profundidad de warmup derivada por fórmula generalizada; un timeframe nuevo se registra sin tocar la fórmula (verificado por test)
+- [ ] `plan_warmup()` excluye series sobre presupuesto con warning (verificado por test)
+- [ ] Equivalencia de rutas de alimentación daily directo vs minute encadenado (verificado por test)
+- [ ] `core/symbol_data.py` no referencia la instancia de `QCAlgorithm` (tipos de `AlgorithmImports` sí permitidos)
+
+## Etapa 5B — Warmup integrado + datos de muestra + validación de precisión
+**Estado:** pendiente
+**Objetivo:** warmup batch real en `main.py`, datos diarios de muestra multi-símbolo, y SMAs validadas manualmente contra plataforma de referencia (criterio DONE nº1 del SPECS)
+**Depende de:** Etapa 5A
+**Alcance:**
+- `scripts/seed_sample_data.sh`: extender con ~5 símbolos de historia diaria larga del repo público de LEAN, incluyendo `factor_files` y `map_files`.
+- `main.py`: un `SymbolData` por símbolo (unión de requerimientos entre estrategias); warmup empujando `self.history` (batch agrupado por resolución, no por símbolo en loop); log de profundidad derivada, duración y símbolos ready/no-ready; guardrail `warmup_budget` operativo.
+- `add_equity(..., data_normalization_mode=SPLIT_ADJUSTED)`: cuadra con el default de TradingView e IBKR (ajuste solo por splits); LEAN por defecto ajusta también dividendos.
+- `config/strategies.json` prod: SMA 200 must en los dos marcos menores (`D:[8,20,200]`, `W:[8,20,200]`); en el marco mayor activable por entorno/proveedor vía presupuesto.
+- Archivo de validación `validation/sma_validation_<fecha>.csv` vía ObjectStore (solo `env=dev`).
+- Validación manual del usuario contra TradingView o IBKR (sin conexión a APIs externas); tolerancia ≤0,25% relativo; valores confirmados congelados como fixture + test de regresión en `tests/`.
+**Done when:**
+- [ ] `lean backtest` con ≥5 símbolos de muestra completa el warmup y loguea profundidad derivada, duración y ready/no-ready
+- [ ] `storage/validation/sma_validation_*.csv` generado con SMA 8/20/200 en marcos menores y 8/20 (+200 si la historia alcanza) en el mayor
+- [ ] Validación manual: desviaciones ≤0,25% registradas como fixture + test de regresión (criterio nº1 del SPECS)
+- [ ] Viabilidad de SMA 200 en el marco mayor documentada por proveedor; guardrail con warning verificado
+- [ ] `strategies.json` prod actualizado con SMA 200 en marcos menores y backtest corriendo sin errores
 
 ## Etapa 6 — Features y Rules
 **Estado:** pendiente
 **Objetivo:** features reutilizables y reglas parametrizadas con evidencia, respetando capas
-**Depende de:** Etapa 5
+**Depende de:** Etapa 5B
 **Alcance:**
 - `core/features.py`: `position_vs_sma(n, tf)`, `extension_pct(n, tf)`, `day_change_pct()` (con y sin working bar), `is_ready()` (indicadores calientes).
 - `core/rules.py`: `AboveSMA(n, tfs)`, `NotExtended(n, max_pct)`, combinadores AND/NOT; cada regla devuelve pasa/no-pasa + evidencia (valores usados).
