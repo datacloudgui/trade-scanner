@@ -5,6 +5,24 @@
 
 ---
 
+## Sesión 3 (2026-06-11) — T3 parcial: tests T3.1–T3.8
+
+### Alcance
+Solo **T3.1–T3.8** (pedido del usuario): `tests/test_timeframes.py` (T3.1–T3.3, sin CLR) y `tests/test_symbol_data.py` (T3.4–T3.8, Docker). **T3.9–T3.11 quedan para la sesión siguiente.** Flushes con ambos mecanismos (trailing bar y `scan`); T3.4 prueba además `scan()` sobre consolidator de calendario (no cubierto por el ad-hoc de T2 — condiciona frescura W/M en 5B).
+
+### Checkpoints sesión 3
+
+- [x] CP1 — `tests/test_timeframes.py` escrito (T3.1 fórmula parametrizada ×9, T3.2 extensibilidad 30T con registry inyectado, T3.3 presupuesto, + import sin CLR vía subprocess, + KeyError tf desconocido)
+- [x] CP2 — `tests/test_symbol_data.py` escrito (T3.4 semana viernes + scan calendario, T3.5 mes calendario + trailing bar, T3.6 SMA W(3)=20.0 a mano vía cadena, T3.7 buffer expulsa semana parcial close-100, T3.8 unión exacta ×3 tests)
+- [x] CP3 — `bash scripts/run_tests.sh` verde a la primera: **28 passed** (6 previos + 22 nuevos)
+- [x] CP4 — Done-when marcados (verificados por ejecución): etapa-05a.md → T3.8, T3.1–T3.2, T3.3 y grep/import-sin-CLR; PLAN.md §5A → unión exacta, fórmula generalizada y no-QCAlgorithm. El de `plan_warmup` en PLAN.md queda sin marcar: su redacción exige "con warning" y el warning lo emite el llamador en 5B (mismatch de redacción a resolver al cierre).
+- [x] CP5 — Pendientes actualizados + commit `[Etapa 5A] T3.1–T3.8` (este commit)
+
+### ✅ Hallazgo positivo sesión 3
+**`scan()` funciona también en consolidators de calendario** (verificado en T3.4: emitió la barra W2 un lunes 00:00 vía `cons.scan(...)`, sin trailing bar). Implicación para 5B: en runtime se puede programar un `SymbolData.scan(now)` (p. ej. antes del scan de reglas) para que las SMAs W/M se refresquen el mismo día del cierre de periodo, sin esperar a que la primera barra diaria de la semana/mes siguiente sea emitida (que llegaría ~1 día tarde).
+
+---
+
 ## Sesión 2 (2026-06-11) — T2: `core/symbol_data.py`
 
 ### Alcance
@@ -59,16 +77,15 @@ Solo **T2** según D3/D4 del spec: `SymbolData` con cadena minute→daily→W/M,
 - [x] CP5 — `bash scripts/run_tests.sh` verde (6 passed) + smoke test de `make_consolidator()` D/W/M dentro de la imagen LEAN (lazy import del CLR funciona)
 - [x] CP6 — Commits: `[Etapa 5A] docs: fraccionar Etapa 5...` (PLAN.md + specs) y `[Etapa 5A] T1: ...` (código)
 
-## Pendientes de la Etapa 5A (estado al cierre de la sesión 2)
+## Pendientes de la Etapa 5A (estado al cierre de la sesión 3)
 
-- ~~T2~~ ✅ completada (sesión 2): `core/symbol_data.py` + `scan(time)` (añadido por el hallazgo de emisión perezosa).
-- **T3** — `tests/test_timeframes.py` + `tests/test_symbol_data.py` (T3.1–T3.11 en Docker). Única tarea restante de la etapa. Las verificaciones ad-hoc de T1 (sesión 1) y T2 (sesión 2, 24 checks) NO sustituyen los pytest formales. Notas imprescindibles para T3:
-  - Emisión perezosa: empujar trailing bar o usar `SymbolData.scan(time)` / `consolidator.scan(time)` para flushear (hallazgo sesión 2; el lag se encadena a W/M).
-  - `Symbol.create(..., EQUITY, ...)` revienta sin map file provider → usar `Symbol(SecurityIdentifier.generate_equity("SPY", Market.USA, False), "SPY")`.
-  - T3.2 inyecta registro sintético vía `plan_warmup(..., registry=...)`; `TimeframeSpec("30T", "minute", 30, 60)` posicional.
-  - En `SymbolData`, introspección pública para T3.8: `sd.timeframes` (consolidators) y `sd.declared` (series).
-- Checkboxes "Done when" de PLAN.md §5A y de etapa-05a.md: sin marcar (correcto — todos dependen de T3, salvo el grep de QCAlgorithm ya verificado pero que se re-verifica al cierre).
-- Al cerrar la etapa: PLAN.md §5A Estado → `completada` + borrar este archivo de checkpoint.
+- ~~T2~~ ✅ (sesión 2) · ~~T3.1–T3.8~~ ✅ (sesión 3, 28 passed).
+- **T3.9–T3.11** — lo único que falta de la etapa (en `tests/test_symbol_data.py`):
+  - **T3.9 equivalencia de rutas** (esfuerzo `xhigh`): mismos días como (a) barras diarias directas y (b) ~3 minutos/día → barras W y SMAs idénticas por ambas rutas. Usar dos instancias de `SymbolData` y comparar; flush final con `scan` (funciona también en calendario, hallazgo sesión 3).
+  - **T3.10 working bar** (ya cubierto ad-hoc en sesión 2: open 1ª/high máx/low mín/close última + None inicial — formalizar como pytest).
+  - **T3.11 readiness**: `is_ready("W", 20)` falso con 19 barras W / verdadero con 20; `is_ready()` agregado refleja la serie más lenta. Ojo: generar 20 semanas (~101 barras diarias) — usar helper con `timedelta`.
+  - Helpers ya disponibles en el archivo: `daily_bar`, `flat_day`, `collect`, `push_week`, SPY vía `generate_equity(..., False)`.
+- **Al cerrar la etapa** (tras T3.9–11): marcar Done-when restantes, PLAN.md §5A Estado → `completada`, borrar este checkpoint. **Resolver mismatch de redacción**: el Done-when de PLAN.md "`plan_warmup()` excluye series sobre presupuesto **con warning**" — la exclusión está testeada (T3.3) pero el warning lo emite el llamador (main.py, 5B por D2); proponer al usuario marcarlo como está o ajustar la redacción.
 - **Fuera de la etapa (sigue pendiente de decisión del usuario):** `config/strategies.json` modificado sin commitear (dev: top_n 5→2, max_universe 10→2) — confirmar si es intencional; `.DS_Store` (ruido macOS, considerar gitignore).
 
 ### Decisiones sesión 1

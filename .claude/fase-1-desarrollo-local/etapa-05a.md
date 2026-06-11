@@ -1,6 +1,6 @@
 # Etapa 5A — TimeframeSpec + SymbolData (lógica y tests sintéticos)
 
-**Estado:** en progreso (T1 ✅ · T2 ✅ · falta T3 — ver [etapa-05a-checkpoint.md](etapa-05a-checkpoint.md))
+**Estado:** en progreso (T1 ✅ · T2 ✅ · T3.1–3.8 ✅ · faltan T3.9–T3.11 — ver [etapa-05a-checkpoint.md](etapa-05a-checkpoint.md))
 **Depende de:** Etapa 4 (UniverseSpec entrega tickers por estrategia)
 **Estimado:** 4–6 horas
 **Contexto:** primera mitad de la antigua Etapa 5, fraccionada el 2026-06-11 (análisis en [etapa-05.md](etapa-05.md)). La integración en `main.py`, los datos de muestra y la validación manual de precisión son **Etapa 5B**.
@@ -214,12 +214,12 @@ Nuevos `tests/test_timeframes.py` y `tests/test_symbol_data.py`. Los TradeBars s
 
 ## Done when (medible)
 
-- [ ] `bash scripts/run_tests.sh` verde con T3.1–T3.11 (más los tests previos del repo)
-- [ ] Solo se crean los consolidators/indicadores de la unión de timeframes declarados (T3.8)
-- [ ] Profundidad de warmup derivada por fórmula generalizada; timeframe nuevo sin tocar la fórmula (T3.1–T3.2)
-- [ ] `plan_warmup()` excluye series sobre presupuesto y reporta profundidad por resolución (T3.3)
+- [ ] `bash scripts/run_tests.sh` verde con T3.1–T3.11 (más los tests previos del repo) — *parcial: T3.1–T3.8 verdes (28 passed, sesión 3); faltan T3.9–T3.11*
+- [x] Solo se crean los consolidators/indicadores de la unión de timeframes declarados (T3.8)
+- [x] Profundidad de warmup derivada por fórmula generalizada; timeframe nuevo sin tocar la fórmula (T3.1–T3.2)
+- [x] `plan_warmup()` excluye series sobre presupuesto y reporta profundidad por resolución (T3.3)
 - [ ] Equivalencia de rutas daily directo vs minute encadenado (T3.9)
-- [ ] `grep -n "QCAlgorithm" trade-scanner/core/symbol_data.py` → sin resultados; `import core.timeframes` funciona sin CLR
+- [x] `grep -n "QCAlgorithm" trade-scanner/core/symbol_data.py` → sin resultados; `import core.timeframes` funciona sin CLR (formalizado como test vía subprocess)
 - [ ] PLAN.md: checkboxes de Etapa 5A marcados y Estado a `completada`
 - [ ] Commit `[Etapa 5A] ...`
 

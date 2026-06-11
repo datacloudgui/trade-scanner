@@ -259,11 +259,11 @@ Variante losers: top N negativos, reglas propias (placeholder, sin reglas en V1)
 - Tests unitarios con TradeBars sintéticos: semana que cierra viernes, mes calendario, SMA con valores a mano, primera barra parcial, unión exacta, profundidades D/W/M × {8, 20, 200}, timeframe intradía nuevo sin tocar la fórmula, equivalencia de rutas de alimentación (warmup daily vs runtime minute), working bar, presupuesto.
 **Done when:**
 - [ ] Tests unitarios de consolidators/indicadores con barras sintéticas verdes (`bash scripts/run_tests.sh`)
-- [ ] Solo se crean los consolidators/indicadores de la unión de timeframes declarados (verificado por test)
-- [ ] Profundidad de warmup derivada por fórmula generalizada; un timeframe nuevo se registra sin tocar la fórmula (verificado por test)
+- [x] Solo se crean los consolidators/indicadores de la unión de timeframes declarados (verificado por test)
+- [x] Profundidad de warmup derivada por fórmula generalizada; un timeframe nuevo se registra sin tocar la fórmula (verificado por test)
 - [ ] `plan_warmup()` excluye series sobre presupuesto con warning (verificado por test)
 - [ ] Equivalencia de rutas de alimentación daily directo vs minute encadenado (verificado por test)
-- [ ] `core/symbol_data.py` no referencia la instancia de `QCAlgorithm` (tipos de `AlgorithmImports` sí permitidos)
+- [x] `core/symbol_data.py` no referencia la instancia de `QCAlgorithm` (tipos de `AlgorithmImports` sí permitidos)
 
 ## Etapa 5B — Warmup integrado + datos de muestra + validación de precisión
 **Estado:** pendiente
