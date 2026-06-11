@@ -1,6 +1,6 @@
 # Etapa 5A — TimeframeSpec + SymbolData (lógica y tests sintéticos)
 
-**Estado:** en progreso (T1 en curso, sesión 2026-06-11 — ver [etapa-05a-checkpoint.md](etapa-05a-checkpoint.md))
+**Estado:** en progreso (T1 ✅ · T2 ✅ · falta T3 — ver [etapa-05a-checkpoint.md](etapa-05a-checkpoint.md))
 **Depende de:** Etapa 4 (UniverseSpec entrega tickers por estrategia)
 **Estimado:** 4–6 horas
 **Contexto:** primera mitad de la antigua Etapa 5, fraccionada el 2026-06-11 (análisis en [etapa-05.md](etapa-05.md)). La integración en `main.py`, los datos de muestra y la validación manual de precisión son **Etapa 5B**.
@@ -134,6 +134,9 @@ class SymbolData:
     def update(self, bar) -> None:
         """Único punto de entrada: barra minute (runtime) o diaria (warmup histórico)."""
 
+    def scan(self, time) -> None:
+        """Flush de barras con periodo vencido (añadido en T2 — ver consideración 3 corregida)."""
+
     @property
     def daily_consolidator(self): ...   # main.py (5B) lo conecta a la suscripción minute
 
@@ -201,7 +204,7 @@ Nuevos `tests/test_timeframes.py` y `tests/test_symbol_data.py`. Los TradeBars s
 
 1. **Emisión del consolidator es perezosa:** la barra W/M se emite cuando llega data que cruza el límite del periodo, no al completarse el periodo en tiempo de reloj. En tests → trailing bar o `scan()`. En producción esto es correcto y deseado (las SMAs W/M se actualizan con la primera barra de la semana/mes siguiente — gotcha ya documentado en CLAUDE.md: indicadores estables intradía).
 2. **`end_time` de la barra consolidada cae al inicio del periodo siguiente** (`Calendar.WEEKLY` lunes→domingo, cierre efectivo viernes; `Calendar.MONTHLY` mes calendario). Los asserts de los tests fijan estas convenciones por escrito; el archivo de validación de 5B reportará `bar_end_time` tal cual.
-3. **Barras diarias dentro del consolidator `timedelta(days=1)`:** una barra diaria de LEAN (time 00:00 → end_time 00:00 del día siguiente) completa exactamente el periodo. T3.9 verifica que la barra emitida así es idéntica a la consolidada desde minutos — si LEAN tuviera una asimetría aquí, este test la detecta antes de que 5B la sufra en datos reales.
+3. **Barras diarias dentro del consolidator `timedelta(days=1)` — CORREGIDO (hallazgo T2, 2026-06-11):** la suposición original ("una barra diaria completa exactamente el periodo y emite") es **falsa**: la emisión es perezosa incluso con barras diarias exactas — la barra queda en `working_data` hasta que llega una barra posterior o un `scan(time)` (verificado en Docker: 3 barras diarias → SMA(3) con solo 2 muestras). El lag se **encadena** a W/M: la barra W de la semana 1 exige que una barra diaria de la semana 2 sea *emitida*, no solo pusheada. Consecuencias: (a) `SymbolData` expone `scan(time)` — flush del diario primero y luego de los encadenados; `scan` solo emite si el periodo venció, es seguro a mitad de semana/mes; (b) el warmup de 5B debe cerrar con `scan(end_time de la última barra)` o las SMAs quedan un periodo frías; (c) `buffer_bars` absorbe el +1 en producción. T3.9 mantiene su rol (equivalencia daily directo vs minute encadenado) y T3.x usa trailing bar o `scan()`.
 4. **Actualización de SMA desde el handler:** `sma.update(bar.end_time, bar.close)` (o `IndicatorDataPoint`). Usar `end_time`, no `time` — con `time` la SMA queda desplazada un periodo.
 5. **Lambdas en loops:** al suscribir handlers para varias SMAs/consolidators en un loop, capturar la variable con argumento por defecto (`lambda s, bar, sma=sma: ...`) o usar funciones parciales — el bug clásico de closure compartido produciría todas las SMAs actualizando la última serie.
 6. **`timeframes.py` importable sin CLR** (import perezoso en `make_consolidator`): los tests de fórmula/plan no pagan el arranque de pythonnet y el módulo queda usable desde scripts del host, como `universe.py`. Los tests de `symbol_data.py` sí corren en Docker (receta de Etapa 2).
