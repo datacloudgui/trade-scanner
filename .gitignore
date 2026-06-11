@@ -156,6 +156,9 @@ activemq-data/
 # LEAN workspace
 data/*
 !data/object-store/
+# ObjectStore real del CLI (raíz montada en /Storage): copia sembrada regenerable
+# con scripts/seed_object_store.sh — la fuente versionada vive en config/. Ver Etapa 2.
+storage/
 
 # Environments
 .env

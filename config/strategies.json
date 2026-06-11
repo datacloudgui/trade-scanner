@@ -1,0 +1,6 @@
+{
+  "strategies": {
+    "swing_eod":    { "universe": "swing", "schedule": "after_close" },
+    "market_close": { "universe": "swing", "schedule": "before_close_30m" }
+  }
+}
