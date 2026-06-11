@@ -27,6 +27,10 @@ def flat_day(y, m, d, px, v=100):
     return daily_bar(y, m, d, px, px, px, px, v)
 
 
+def minute_bar(y, m, d, hh, mm, o, h, lo, c, v=10):
+    return TradeBar(datetime(y, m, d, hh, mm), SPY, o, h, lo, c, v, timedelta(minutes=1))
+
+
 def collect(consolidator) -> list:
     emitted = []
     consolidator.data_consolidated += lambda _s, bar: emitted.append(bar)
@@ -216,3 +220,45 @@ def test_t3_9_daily_and_minute_routes_produce_identical_state():
         assert int(sma_a.samples) == int(sma_b.samples)
         assert float(sma_a.current.value) == float(sma_b.current.value)
         assert sma_a.current.end_time == sma_b.current.end_time
+
+
+# --- T3.10 — working bar: OHLC parcial del día en curso con barras minute ---
+
+def test_t3_10_working_bar_aggregates_partial_day():
+    sd = SymbolData(SPY, {"D": {3}})
+    assert sd.working_bar is None  # antes de la primera barra
+    # media sesión: open de la 1ª=100, high máx=106 (2ª), low mín=98 (2ª), close de la última=104
+    sd.update(minute_bar(2024, 1, 8, 9, 31, 100, 102, 99, 101))
+    sd.update(minute_bar(2024, 1, 8, 10, 15, 101, 106, 98, 105))
+    sd.update(minute_bar(2024, 1, 8, 12, 0, 105, 105, 103, 104))
+    wb = sd.working_bar
+    assert wb is not None
+    assert (float(wb.open), float(wb.high), float(wb.low), float(wb.close)) == (100, 106, 98, 104)
+    assert float(wb.volume) == 30  # 3 barras × 10
+
+
+# --- T3.11 — readiness: 19 barras W no bastan para SMA(20); el agregado refleja la más lenta ---
+
+def push_weeks(sd, first_monday, n_weeks, close=10):
+    """n_weeks completas lun–vie de barras diarias planas a partir de un lunes."""
+    for week in range(n_weeks):
+        for weekday in range(5):
+            day = first_monday + timedelta(weeks=week, days=weekday)
+            sd.update(flat_day(day.year, day.month, day.day, close))
+
+
+def test_t3_11_readiness_per_series_and_aggregate():
+    sd = SymbolData(SPY, {"D": {3}, "W": {20}})
+    monday1 = datetime(2024, 1, 8)
+    push_weeks(sd, monday1, 20)
+    # 20 semanas pusheadas → solo 19 barras W emitidas (lag encadenado, hallazgo T2)
+    assert int(sd.sma("W", 20).samples) == 19
+    assert sd.is_ready("W", 20) is False
+    assert sd.is_ready("D", 3) is True   # la serie rápida ya está caliente
+    assert sd.is_ready() is False        # el agregado refleja la serie más lenta
+    # lunes de la semana 21 + scan → emite la barra W nº 20
+    monday21 = monday1 + timedelta(weeks=20)
+    sd.update(flat_day(monday21.year, monday21.month, monday21.day, 10))
+    sd.scan(monday21 + timedelta(days=1))
+    assert sd.is_ready("W", 20) is True
+    assert sd.is_ready() is True

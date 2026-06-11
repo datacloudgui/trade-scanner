@@ -100,6 +100,13 @@ Restricciones entre capas — verifícalas en cada cambio:
 - **`self.get_parameter()` lee de `trade-scanner/config.json`, NO de `lean.json`.** El campo `"parameters"` en `lean.json` (raíz del workspace) es configuración del engine LEAN y es ignorado por `get_parameter()`. Los parámetros escalares del algoritmo (ej. `"env": "dev"`) deben estar en `trade-scanner/config.json["parameters"]`. Config de negocio anidada sigue yendo a ObjectStore.
 - **`core/universe.py` no debe importar `AlgorithmImports`.** Mantenerlo libre de imports LEAN permite testearlo con `MockObjectStore` simple (sin CLR) y usarlo desde scripts del host. `main.py` pasa `self.object_store` en runtime; los tests pasan su propio mock.
 
+### Descubiertos en Etapa 5A
+
+- **La emisión del consolidator es perezosa SIEMPRE.** Incluso una barra diaria que llena exactamente el periodo `timedelta(days=1)` queda en `working_data` hasta que llega una barra posterior o un `scan(time)`; el lag se encadena a W/M. Consecuencia: el warmup debe cerrar con `SymbolData.scan(end_time de la última barra)` y los tests flushean con trailing bar o `scan()`.
+- **`scan()` también emite en consolidators de calendario** (`Calendar.WEEKLY`/`MONTHLY`): permite refrescar SMAs W/M el mismo día del cierre de periodo en runtime, sin esperar la primera barra diaria del periodo siguiente.
+- **Equivalencia exacta warmup/runtime verificada (T3.9).** El consolidator diario redondea `time` a 00:00: la barra construida desde minutos es idéntica a la diaria directa, y la cadena W/M hereda la identidad. No hay asimetría que compensar en `main.py`.
+- **`Symbol.create(..., EQUITY, ...)` fuera del engine lanza NullReference** (exige map file provider). En tests: `Symbol(SecurityIdentifier.generate_equity("SPY", Market.USA, False), "SPY")`. Para scripts directos en la imagen (no `python -m pytest`), añadir `/Lean/Launcher/bin/Debug` al `PYTHONPATH`.
+
 ## Definición de "verificado"
 
 Un checkbox de PLAN.md se marca solo si:

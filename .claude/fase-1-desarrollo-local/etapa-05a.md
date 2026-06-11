@@ -1,6 +1,6 @@
 # Etapa 5A — TimeframeSpec + SymbolData (lógica y tests sintéticos)
 
-**Estado:** en progreso (T1 ✅ · T2 ✅ · T3.1–3.9 ✅ · faltan T3.10–T3.11 — ver [etapa-05a-checkpoint.md](etapa-05a-checkpoint.md))
+**Estado:** completada (2026-06-11, 31 tests verdes — decisiones y pendientes en [etapa-05a-decisiones-y-pendientes.md](etapa-05a-decisiones-y-pendientes.md))
 **Depende de:** Etapa 4 (UniverseSpec entrega tickers por estrategia)
 **Estimado:** 4–6 horas
 **Contexto:** primera mitad de la antigua Etapa 5, fraccionada el 2026-06-11 (análisis en [etapa-05.md](etapa-05.md)). La integración en `main.py`, los datos de muestra y la validación manual de precisión son **Etapa 5B**.
@@ -214,14 +214,14 @@ Nuevos `tests/test_timeframes.py` y `tests/test_symbol_data.py`. Los TradeBars s
 
 ## Done when (medible)
 
-- [ ] `bash scripts/run_tests.sh` verde con T3.1–T3.11 (más los tests previos del repo) — *parcial: T3.1–T3.8 verdes (28 passed, sesión 3); faltan T3.9–T3.11*
+- [x] `bash scripts/run_tests.sh` verde con T3.1–T3.11 (más los tests previos del repo) — 31 passed (sesión 5)
 - [x] Solo se crean los consolidators/indicadores de la unión de timeframes declarados (T3.8)
 - [x] Profundidad de warmup derivada por fórmula generalizada; timeframe nuevo sin tocar la fórmula (T3.1–T3.2)
 - [x] `plan_warmup()` excluye series sobre presupuesto y reporta profundidad por resolución (T3.3)
 - [x] Equivalencia de rutas daily directo vs minute encadenado (T3.9: identidad exacta en barras D, barras W y SMAs)
 - [x] `grep -n "QCAlgorithm" trade-scanner/core/symbol_data.py` → sin resultados; `import core.timeframes` funciona sin CLR (formalizado como test vía subprocess)
-- [ ] PLAN.md: checkboxes de Etapa 5A marcados y Estado a `completada`
-- [ ] Commit `[Etapa 5A] ...`
+- [x] PLAN.md: checkboxes de Etapa 5A marcados y Estado a `completada`
+- [x] Commit `[Etapa 5A] ...` (T1 d42c4d3 · T2 f6d22a9 · T3.1–3.8 b49632f · T3.9 1417da7 · cierre)
 
 ---
 
