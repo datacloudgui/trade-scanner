@@ -47,10 +47,10 @@ Ambas llamadas requieren credenciales QC válidas **y** que la organización ten
 
 | Comando | Necesita QC auth | Motivo |
 |---|---|---|
-| `lean backtest "Screener"` (data local) | ❌ No | `DefaultDataProvider` → `installs: false` |
+| `lean backtest "trade-scanner"` (data local) | ❌ No | `DefaultDataProvider` → `installs: false` |
 | `lean project-create` | ❌ No | Operación local |
 | `pytest` en Docker | ❌ No | Sin CLI, sin módulos |
-| `lean live "Screener"` con Alpaca | ✅ Sí | `AlpacaBrokerage` → `installs: true` |
+| `lean live "trade-scanner"` con Alpaca | ✅ Sí | `AlpacaBrokerage` → `installs: true` |
 | `lean data download` con Alpaca | ✅ Sí | mismo mecanismo de módulos |
 
 **Impacto por etapa:**

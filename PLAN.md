@@ -39,7 +39,7 @@ trade-scanner/              # lean init aquí (workspace)
 ├── lean.json                    # provider de datos/broker: ÚNICO lugar que cambia entre fuentes
 ├── data/                        # data folder LEAN (gestionado por CLI; no versionar contenido pesado)
 │   └── object-store/            # ObjectStore local (aquí se siembran los CSVs de universo)
-├── Screener/                    # lean project-create "Screener"
+├── trade-scanner/               # lean project-create "trade-scanner" --language python
 │   ├── main.py                  # L5: única clase QCAlgorithm
 │   ├── config.json              # parámetros: estrategias, timeframes, umbrales, horarios, claves de universo
 │   ├── research.ipynb           # exploración (generado por CLI)
@@ -126,17 +126,17 @@ Variante losers: top N negativos, reglas propias (placeholder, sin reglas en V1)
 - [ ] `.venv/` en `.gitignore`; `.python-version` en el repo
 
 ## Etapa 1 — Workspace LEAN, cuentas y credenciales
-**Estado:** pendiente
-**Objetivo:** entorno local LEAN corriendo en Docker con cuentas y credenciales listas
+**Estado:** completada
+**Objetivo:** entorno local LEAN corriendo en Docker con credenciales listas
 **Depende de:** Etapa 0
 **Alcance:**
-- Cuentas: QuantConnect (para `lean login`) y Alpaca paper (API key/secret, fuera del repo).
-- `lean init` en `screener-workspace/`; revisar `lean.json` y `data/` generados.
-- Smoke test: `lean project-create "Screener"` y `lean backtest "Screener"` con el algoritmo de ejemplo.
+- Alpaca paper (API key/secret) en `.env` (gitignoreado); `lean login` QC no requerido para Fase 1.
+- `lean.json` generado desde template público de LEAN (sin `lean init` — requiere QC pago); `organization-id` placeholder para satisfacer check del CLI.
+- Smoke test: `lean project-create "trade-scanner" --language python` y `lean backtest "trade-scanner"`.
 **Done when:**
-- [ ] `lean backtest "Screener"` corre en Docker sin errores con el algoritmo de ejemplo
-- [ ] `lean login` autenticado contra QuantConnect
-- [ ] Credenciales Alpaca configuradas, documentadas y excluidas de git (`.gitignore`)
+- [x] `lean backtest "trade-scanner"` corre en Docker sin errores con el algoritmo de ejemplo
+- [x] Credenciales Alpaca en `.env` (gitignoreado); `lean.json` sin valores reales
+- [x] `lean.json`, `.gitignore` y proyecto commiteados con `[Etapa 1] ...`
 
 ## Etapa 2 — Esqueleto del proyecto
 **Estado:** pendiente
@@ -249,7 +249,7 @@ sma_evidence (valor + distancia % por cada SMA evaluada), passed_rules (lista se
 
 > ⚠️ **Prerrequisito bloqueante — resolver ANTES de iniciar esta etapa**
 >
-> `lean live "Screener"` con Alpaca y `lean data download` requieren credenciales QC
+> `lean live "trade-scanner"` con Alpaca y `lean data download` requieren credenciales QC
 > y una org con licencia `AlpacaBrokerage` (plan Researcher mínimo). Sin esto, ambos
 > comandos fallan al intentar instalar el módulo NuGet del brokerage.
 >
@@ -262,7 +262,7 @@ sma_evidence (valor + distancia % por cada SMA evaluada), passed_rules (lista se
 
 **Alcance:**
 - Backtest 6–12 meses; revisar watchlists de fechas conocidas manualmente.
-- `lean live "Screener"` paper local con Alpaca: una sesión completa, verificar ambos scans, working bar real, salida y logs.
+- `lean live "trade-scanner"` paper local con Alpaca: una sesión completa, verificar ambos scans, working bar real, salida y logs.
 - Verificar portabilidad de fuente: cambiar provider en `lean.json` (Alpaca ↔ QC) sin tocar código.
 **Done when:**
 - [ ] Backtest 6–12 meses con watchlists revisadas manualmente

@@ -20,9 +20,9 @@ Screener multi-estrategia sobre el motor LEAN (QuantConnect, Python 3.11). Carga
 ## Comandos
 
 ```bash
-lean backtest "Screener"                 # backtest local (Docker)
-lean live "Screener"                     # paper live local
-lean research "Screener"                 # Jupyter para exploración
+lean backtest "trade-scanner"            # backtest local (Docker)
+lean live "trade-scanner"                # paper live local (requiere QC paid — ver ADR-002)
+lean research "trade-scanner"            # Jupyter para exploración
 bash scripts/run_tests.sh                # pytest DENTRO de la imagen LEAN (único modo válido)
 bash scripts/seed_object_store.sh        # universes/*.csv → data/object-store/
 python scripts/explore_universe.py <csv> # perfilado del CSV de universo
@@ -78,8 +78,18 @@ Restricciones entre capas — verifícalas en cada cambio:
 - Símbolos con warmup incompleto: excluir del scan y loguear, nunca evaluar reglas con indicadores fríos (`is_ready()`).
 - Python del host: el CLI y scripts auxiliares corren sobre Python 3.11 del virtualenv (`.venv`). El engine y los tests corren siempre dentro de la imagen Docker (`quantconnect/lean`). `python3` del sistema puede ser una versión diferente — nunca lo uses directamente.
 
+## Gotchas del workspace (descubiertos en Etapa 1)
+
+- **`lean init` requiere QC pago.** Pide seleccionar una organización vía API. En su lugar: descargar `Launcher/config.json` del repo público de LEAN en GitHub, aplicar `clean_lean_config()`, y añadir `"organization-id"` en `lean.json`.
+- **`organization-id` obligatorio en lean.json.** El CLI v1.0.x lanza error si el campo es nulo. Para backtest local usar placeholder `"00000000000000000000000000000000"` — nunca se valida contra QC. Reemplazar con org-id real antes de `lean live`.
+- **El CLI reformatea lean.json a JSON estándar.** Elimina comentarios `//` en la primera escritura. Comportamiento esperado; el engine lo acepta igual.
+- **`lean project-create` requiere `--language python` explícito** si `default-language` no está seteado en la config del CLI.
+- **`${VAR}` NO se expande en lean.json.** El CLI no hace sustitución de variables de entorno. Credenciales en campos vacíos en lean.json (commiteado) + valores reales solo en `.env` (gitignoreado).
+- **`lean live` con Alpaca requiere QC paid (plan Researcher).** AlpacaBrokerage tiene `installs: true` → el CLI intenta descargar un módulo NuGet via API de QC. Sin licencia falla. Ver [ADR-002](.claude/decisions/ADR-002-qc-module-auth-constraint.md) y el flag en Etapa 9 de PLAN.md.
+- **Gitignore para artefactos del CLI:** añadir `**/backtests/`, `**/.idea/`, `**/.vscode/`, `**/research.ipynb` — el CLI los genera automáticamente y no deben commitearse.
+
 ## Definición de "verificado"
 
 Un checkbox de PLAN.md se marca solo si:
 1. `bash scripts/run_tests.sh` pasa, y
-2. cuando aplica, `lean backtest "Screener"` corre sin errores y los logs/archivos demuestran el criterio (cita la evidencia en el resumen de cierre de etapa).
+2. cuando aplica, `lean backtest "trade-scanner"` corre sin errores y los logs/archivos demuestran el criterio (cita la evidencia en el resumen de cierre de etapa).
