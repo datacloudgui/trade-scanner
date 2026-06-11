@@ -124,3 +124,87 @@
   evidencia permanente del wiring o se retiran al cerrar F1.
 - Las SMAs siguen **frías** (sin warmup todavía): `is_ready` no se validó hoy — es exactamente
   lo que T2.2 resuelve.
+
+## T2.2 — warmup `set_warm_up` con gate de cross-check; ADOPTADO sin rollback (2026-06-11)
+
+**Estado:** ✅ completada (gate verificado por ejecución; pregunta abierta nº1 del spec RESUELTA).
+
+### Decisión principal: Estrategia A (engine-managed) ADOPTADA
+
+`self.set_warm_up(4221, Resolution.DAILY)` con los consolidators ya cableados a la suscripción
+(T2.1). El gate de D4 corrió en `on_warmup_finished` y dio **9/9 series exactas** contra la ruta
+manual (igualdad estricta de `current.value` + `is_ready`): **no hay rollback**. Log:
+`[warmup] gate dev OK: set_warm_up ADOPTADO — 9/9 series exactas vs ruta manual (4221 filas vía
+history[TradeBar], 1 llamada batch)`.
+
+### Decisiones de diseño del gate
+
+- **La ruta manual B no es código muerto:** vive en `_run_warmup_gate()` — calienta `SymbolData`
+  *sombra* (no cableados al engine) con `self.history[TradeBar](symbols, depth, DAILY)` tipado en
+  **una** llamada batch + `update(bar)` por barra + `scan()` de cierre, y compara serie a serie.
+  El gate corre en **cada backtest dev** (en prod no): re-valida la equivalencia continuamente y
+  mantiene la ruta B lista como rollback si una versión futura del engine divergiera.
+- **El flush de ambas rutas se hace al MISMO instante (`self.time`)**: comparar estados flusheados
+  a tiempos distintos produce falsos mismatches W/M (periodos que vencen entre `last_bar.end_time`
+  y el start date).
+
+### Hallazgo nuevo (refina D4): la emisión perezosa al cierre del warmup solo se resuelve sola en el consolidator RAÍZ
+
+- Al llegar a `on_warmup_finished`, el working bar **diario** ya estaba emitido (`flush scan(...)
+  emitió 0 working bar(s) retenidas`): el engine escanea los consolidators registrados en
+  `subscription_manager` al avanzar el frontier.
+- Pero los consolidators **W/M encadenados son invisibles para el engine** (viven dentro de
+  `SymbolData`, alimentados por `_feed_chained`): la barra M de diciembre y la W de la última
+  semana seguían en working al instante del fin de warmup — un `update()` con la barra diaria
+  del 12-31 no dispara emisión (la barra pertenece al periodo en curso, no al siguiente).
+- Conclusión: **el `sd.scan(self.time)` en `on_warmup_finished` es NECESARIO** para que las SMAs
+  W/M estén al día justo cuando T3 escriba el archivo de validación. La frase de D4 "sin `scan()`
+  de cierre" vale para el flujo continuo daily, no para el instante de cierre del warmup en la
+  cadena W/M. Es el hallazgo #1 de 5A manifestándose en la ruta A.
+
+### Otras decisiones
+
+- **Guard de warmup:** los ScheduledEvents SÍ disparan durante warmup → callback movido a
+  `_scan_stub()` con `if self.is_warming_up: return` (sin él: ~4200 días × 4 estrategias de spam).
+  `on_data` cuenta barras SIEMPRE (la instrumentación 1:1 ahora cubre warmup + runtime) y el guard
+  protege solo la lógica de runtime futura.
+- **`plan_warmup` global cableado:** series `excluded` → warning por cada una + `SymbolData` se
+  construye con el requirements **filtrado** (la serie no existe). En dev (budget 4300) no se
+  excluye nada por diseño; el disparo real del warning se verifica en T7.1 con budget prod.
+- **Driver y profundidades en el log** (adelanta parte de T2.3):
+  `[warmup] plan(daily): depth=4221 (driver M:200) | D:200→205, M:200→4221, W:200→1010`.
+
+### Verificación (criterio de aceptación de T2)
+
+| Criterio | Evidencia (backtest 2026-06-11_18-34-00) |
+|---|---|
+| Backtest dev corre sin errores | ✓ `Successfully ran 'trade-scanner'` |
+| Profundidad coherente con fórmula (W:200→1010, M:200→4221) | ✓ línea `[warmup] plan(daily)` |
+| Duración | ✓ `4221 barras stremeadas en 0.82s` (baseline SPECS §11) |
+| SPY `ready` | ✓ `[warmup] ready: 1/1 símbolos` (las 9 series, M:200 incluida) |
+| Decisión de warmup documentada con cross-check | ✓ `gate dev OK: set_warm_up ADOPTADO — 9/9 exactas` |
+| Ruta manual con `history[TradeBar]` tipado, 1 llamada por resolución | ✓ en el gate (4221 filas, 1 batch) |
+| `run_tests.sh` | ✓ 31 passed (sin cambios en `core/`) |
+| 1:1 suscripción→consolidator (extendido a warmup+runtime) | ✓ `4231 recibidas, 4230 consolidadas` + 1 working |
+
+El engine entregó **exactamente** las 4221 barras pedidas (rebobina por trading days con
+resolución DAILY) — sin déficit que comprometa M:200.
+
+### Observaciones (no bloquean)
+
+- `Skip Dividend during warmup` (TRACE del engine, ~70 líneas): con SPLIT_ADJUSTED el feed
+  entrega los dividendos crudos y el engine los omite durante warmup. Ruido esperado, no error.
+- **Boundary del end-date:** los eventos `after_market_close` del ÚLTIMO día del backtest no
+  disparan (el frontier termina a las 16:00 del end date con data daily) — preexistente (38
+  scans también en el run de T2.1), solo artefacto de backtest, irrelevante en live. Nota para
+  Etapa 7 al validar schedules.
+
+### Pendiente
+
+- **T2.3** — los logs exigidos ya se emiten (driver, duración, ready/no-ready, decisión);
+  queda cotejarlos formalmente contra el criterio, y decidir si los contadores 1:1 y el gate
+  dev se conservan tras F1 (el gate duplica el warmup en dev: +4221 filas de history por run).
+- Warning de exclusión por presupuesto: cableado pero sin disparar en dev — verificación real
+  en T7.1 (budget prod bajo).
+- **T3** — archivo de validación: escribirlo en `on_warmup_finished` después del flush
+  (las SMAs quedan al día gracias al hallazgo de arriba).

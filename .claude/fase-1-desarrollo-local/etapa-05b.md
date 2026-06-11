@@ -184,7 +184,7 @@ Script standalone (`scripts/`, host): `GET https://data.alpaca.markets/v2/stocks
 
 ## Preguntas abiertas
 
-- [ ] **`set_warm_up` vs manual** — se resuelve empíricamente en T2.2 (gate de cross-check). Si `set_warm_up` no reproduce las SMAs de la ruta manual, rollback documentado.
+- [x] **`set_warm_up` vs manual** — RESUELTA (T2.2, 2026-06-11): `set_warm_up` ADOPTADO; gate dev 9/9 series exactas vs ruta manual. Hallazgo: el flush `scan(self.time)` en `on_warmup_finished` sigue siendo necesario para la cadena W/M (el engine solo escanea el consolidator raíz registrado en `subscription_manager`). Detalle en [etapa-05b-decisiones-y-pendientes.md](etapa-05b-decisiones-y-pendientes.md).
 - [ ] **Patrón de URL y ajuste de Stooq** — confirmar empíricamente en T6.3 (split-adjusted, orden, headers).
 - [ ] **Existencia de `daily/aapl.zip` + `daily/ibm.zip` + factor/map en el repo LEAN** — verificar en T5.1; sustituir símbolo si falta.
 - [ ] **Mecanismo del override de `timeframes` dev en `main.py`** — leerlo del environment vs derivarlo: se fija al implementar T2.1 (propuesta: si `environment.timeframes` existe, reemplaza la unión de estrategias para construir `requirements`).
