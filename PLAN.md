@@ -268,22 +268,22 @@ Variante losers: top N negativos, reglas propias (placeholder, sin reglas en V1)
 > **Cierre (commits `[Etapa 5A]`, 2026-06-11):** `core/timeframes.py` (registro declarativo `TimeframeSpec`, fórmula de warmup generalizada, `plan_warmup` con presupuesto por resolución) y `core/symbol_data.py` (cadena minute→daily→W/M sin instancia del algorithm, `working_bar`, `is_ready`, `scan(time)`). 31 tests verdes en Docker (T3.1–T3.11 + previos). **Hallazgos D-E5A:** (1) la emisión del consolidator es perezosa incluso con barras diarias exactas y el lag se encadena a W/M → el warmup de 5B debe cerrar con `SymbolData.scan(...)`; (2) `scan()` también emite en consolidators de calendario → 5B puede refrescar SMAs W/M el mismo día del cierre de periodo; (3) equivalencia EXACTA de rutas warmup-daily vs runtime-minute verificada (T3.9) — sin asimetrías en LEAN. Decisiones y pendientes en [.claude/fase-1-desarrollo-local/etapa-05a-decisiones-y-pendientes.md](.claude/fase-1-desarrollo-local/etapa-05a-decisiones-y-pendientes.md).
 
 ## Etapa 5B — Warmup integrado + datos de muestra + validación de precisión
-**Estado:** pendiente
+**Estado:** en progreso
 **Objetivo:** warmup batch real en `main.py`, datos diarios de muestra multi-símbolo, y SMAs validadas manualmente contra plataforma de referencia (criterio DONE nº1 del SPECS)
 **Depende de:** Etapa 5A
-**Alcance:**
-- `scripts/seed_sample_data.sh`: extender con ~5 símbolos de historia diaria larga del repo público de LEAN, incluyendo `factor_files` y `map_files`.
-- `main.py`: un `SymbolData` por símbolo (unión de requerimientos entre estrategias); warmup empujando `self.history` (batch agrupado por resolución, no por símbolo en loop); log de profundidad derivada, duración y símbolos ready/no-ready; guardrail `warmup_budget` operativo.
-- `add_equity(..., data_normalization_mode=SPLIT_ADJUSTED)`: cuadra con el default de TradingView e IBKR (ajuste solo por splits); LEAN por defecto ajusta también dividendos.
-- `config/strategies.json` prod: SMA 200 must en los dos marcos menores (`D:[8,20,200]`, `W:[8,20,200]`); en el marco mayor activable por entorno/proveedor vía presupuesto.
-- Archivo de validación `validation/sma_validation_<fecha>.csv` vía ObjectStore (solo `env=dev`).
-- Validación manual del usuario contra TradingView o IBKR (sin conexión a APIs externas); tolerancia ≤0,25% relativo; valores confirmados congelados como fixture + test de regresión en `tests/`.
+**Spec detallado:** [.claude/fase-1-desarrollo-local/etapa-05b.md](.claude/fase-1-desarrollo-local/etapa-05b.md)
+**Alcance (slice-vertical SPY primero; 4 fases):**
+- **F1 — slice vertical SPY (datos cero):** `main.py` construye `SymbolData` por símbolo, warmup batch `self.history` agrupado por resolución **cerrando con `sd.scan()`** (hallazgo #1 de 5A), `plan_warmup` global, suscripción `Resolution.DAILY` con `SPLIT_ADJUSTED`, wiring `subscription_manager.add_consolidator`. Entorno `dev` como harness: overrides `universe`/`timeframes`/`warmup_budget` a nivel environment (universo `sample_dev` = SPY/AAPL/IBM; `D/W/M:[8,20,200]` con M:200 solo en dev). Archivo `validation/sma_validation_<fecha>.csv` (solo dev, **K=5 filas/serie**) + fixture de regresión interino. Hito: *pipeline verde*.
+- **F2 — ampliar data:** extender `seed_sample_data.sh` con AAPL/IBM (zips LEAN, baseline) → 3 símbolos; ejercita el batch multi-símbolo.
+- **F3 — data reciente + precisión:** converter host-side agnóstico a fuente (`requests` crudo, formato LEAN, factor_files neutros) + fetcher Stooq (recent, 30+ a, M:200 viable); cross-check converter==zip; config prod `D:[8,20,200]`/`W:[8,20,200]` (M:200 excluida por presupuesto → warning); validación manual del usuario (TradingView/IBKR, ≤0,25%) congelada como fixture + test de regresión.
+- **F4 — de-risk Etapa 9:** smoke-test de la API de datos de Alpaca (conectividad/keys; NO valida `lean live` — ADR-002).
+- Datos: triple fuente complementaria (zips LEAN + converter Stooq + smoke-test Alpaca); proceso agnóstico a la fuente (todo escribe formato LEAN en `data/`; `main.py` solo lee el feed). `working_bar`/minute/`partial_bar` quedan para Etapa 7.
 **Done when:**
-- [ ] `lean backtest` con ≥5 símbolos de muestra completa el warmup y loguea profundidad derivada, duración y ready/no-ready
-- [ ] `storage/validation/sma_validation_*.csv` generado con SMA 8/20/200 en marcos menores y 8/20 (+200 si la historia alcanza) en el mayor
-- [ ] Validación manual: desviaciones ≤0,25% registradas como fixture + test de regresión (criterio nº1 del SPECS)
-- [ ] Viabilidad de SMA 200 en el marco mayor documentada por proveedor; guardrail con warning verificado
-- [ ] `strategies.json` prod actualizado con SMA 200 en marcos menores y backtest corriendo sin errores
+- [ ] **F1:** `lean backtest` dev con SPY completa el warmup y loguea profundidad derivada con driver (W:200→1010, M:200→4221), duración y ready/no-ready; `storage/validation/sma_validation_*.csv` con K=5 filas/serie; regresión interina de SPY verde
+- [ ] **F2:** AAPL/IBM sembrados; 3 símbolos ready; batch agrupado por resolución (una llamada, no loop por símbolo) verificado en log
+- [ ] **F3:** converter Stooq produce zips válidos; cross-check SPY (converter==zip) dentro de tolerancia; validación manual ≤0,25% (SPY/AAPL/IBM, D/W/M 8/20/200) como fixture + test de regresión; prod con SMA 200 en D/W y warning de exclusión de M:200 verificado
+- [ ] **F4:** smoke-test de la API de datos de Alpaca documentado (conectividad OK o fallo registrado para Etapa 9)
+- [ ] Viabilidad de SMA 200 por marco/proveedor documentada y guardrail `warmup_budget` con warning operativo
 
 ## Etapa 6 — Features y Rules
 **Estado:** pendiente
@@ -324,6 +324,7 @@ Variante losers: top N negativos, reglas propias (placeholder, sin reglas en V1)
 **Estado:** pendiente
 **Objetivo:** Fase 1 cerrada con los 6 criterios DONE WHEN del SPECS verificados
 **Depende de:** Etapa 8
+**Notas y deferrals acumulados:** [.claude/fase-1-desarrollo-local/etapa-09.md](.claude/fase-1-desarrollo-local/etapa-09.md) (incluye D9-1: optimización del batching de historia en live con Alpaca, diferido desde 5B)
 
 > ⚠️ **Prerrequisito bloqueante — resolver ANTES de iniciar esta etapa**
 >

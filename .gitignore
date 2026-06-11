@@ -1,3 +1,6 @@
+# macOS
+.DS_Store
+
 # LEAN project outputs (no versionar resultados de backtest ni IDE)
 **/backtests/
 **/.idea/
