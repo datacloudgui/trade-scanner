@@ -41,7 +41,7 @@ El spec define la regla del signo dentro de T1.1 (no de T1.2), así que la invar
 ### Pendiente (resto de la etapa)
 
 - **T1.2** — `position_vs_sma(sd, tf, period, thresholds)` + `FeatureNotReady` (contrato de fríos). → ✅ hecho (ver sección T1.2)
-- **T1.3** — `_bucketize` (7 buckets, 6 cortes exactos) + test parametrizado de fronteras con dos sets de thresholds.
+- **T1.3** — `_bucketize` (7 buckets, 6 cortes exactos) + test parametrizado de fronteras con dos sets de thresholds. → ✅ hecho (ver sección T1.3)
 - **T2** — `bucket_thresholds` en `config/strategies.json` + `resolve_bucket_thresholds` (3 rutas de merge).
 - **T3** — `AboveSMA` + `RuleResult` en `core/rules.py`.
 - **T4** — `NotExtended` (composición sobre `AboveSMA`).
@@ -97,3 +97,43 @@ El corte por frío ocurre antes de tocar cualquier estado caliente (testeado: co
 ### Pendiente tras T1.2
 
 Sin pendientes propios de la tarea. Siguiente: **T1.3** (`_bucketize` real — al implementarla, el placeholder y su `NotImplementedError` desaparecen; los tests de delegación de T1.2 quedan como están porque stubean por monkeypatch).
+
+---
+
+## T1.3 — `_bucketize`: tabla de 7 buckets (2026-06-12)
+
+### Resultado contra el criterio de aceptación
+
+Cierra el criterio del bloque T1 completo (T1.1+T1.2+T1.3):
+
+| Criterio T1 | Estado | Evidencia |
+|---|---|---|
+| `_bucketize(distance_pct, thresholds) -> str` con la tabla de 7 buckets | ✅ | Cascada de arriba hacia abajo en `core/features.py`; exhaustiva y sin solapes por construcción |
+| Cortes `near < mild < extended` leídos de `thresholds`; sin números mágicos | ✅ | Los 3 cortes se leen una sola vez al inicio; el cuerpo solo usa esas variables |
+| Lado `below` espeja a `above` | ✅ | `test_bucketize_mirror_symmetry`: `bucketize(-d) == espejo(bucketize(d))` para interiores Y cortes |
+| Test parametrizado: 7 buckets cubiertos | ✅ | `test_seven_buckets_and_six_exact_cuts` (7 interiores, vía `position_vs_sma` + stub SMA=100) |
+| 6 cortes exactos con inclusión/exclusión de la tabla (`>=` piso above, `<=` techo below) | ✅ | Mismo test (6 casos de corte exacto) + `test_bucketize_boundary_ownership_with_epsilon` (12 casos: cada corte y su vecino a `±1e-12` hacia el centro) |
+| `distance_pct` con tolerancia `1e-9` | ✅ | Assert con `pytest.approx(abs=1e-9)` en los 13 casos |
+| Segundo set de thresholds mueve los cortes (no-hardcodeo) | ✅ | `test_second_threshold_set_moves_the_cuts`: `{near:0.01, mild:0.05, extended:0.08}` — 6 casos donde default y custom clasifican distinto, incl. cortes exactos del set custom (±0.08) |
+| Caso con SMA fría levanta `FeatureNotReady` | ✅ | Cubierto en T1.2 (`test_cold_series_raises_feature_not_ready`) |
+| `run_tests.sh` verde | ✅ | 82 passed (50 previos + 32 nuevos) |
+
+**Veredicto: ✅ T1.3 cumplido → bloque T1 completo.** Primer "Done when" de la etapa marcado `[x]` en etapa-06.md y PLAN.md.
+
+### Decisiones tomadas
+
+#### D-T1.3.1 — Cascada de extremos hacia el centro, fiel a la invariante de frontera
+
+La tabla se implementa como cascada `extended_above → … → extended_below`. La invariante (un corte exacto pertenece al bucket más alejado de la SMA) queda expresada con `>=` en el lado above y `>` sobre el corte negado en el lado below (equivalente al `<=` de la tabla), documentada en el docstring. No se usa `abs()` ni duplicación de cortes: cada corte aparece una vez por lado.
+
+#### D-T1.3.2 — Constante `BUCKETS` a nivel de módulo (set cerrado de 7)
+
+Se define ya en `core/features.py` porque: (a) los tests de propiedad la usan para verificar que `_bucketize` solo emite buckets conocidos, y (b) T3.1 la necesita para el fail-fast de `buckets_allowed` en el constructor de `AboveSMA` — definir el set canónico junto a quien lo produce evita dos fuentes de verdad.
+
+#### D-T1.3.3 — Doble batería de frontera: división real + epsilon directo
+
+Los cortes exactos se testean por dos vías complementarias: (a) vía `position_vs_sma` con SMA=100 y cierres que producen el corte exacto tras la división (`(103-100)/100 == 0.03` en doble precisión); (b) directo sobre `_bucketize` con `corte ± 1e-12` — valores que la división real difícilmente produce pero que pinean el ownership de cada frontera contra off-by-epsilon (`<` vs `<=`) en refactors. La propiedad espejo cubre además la simetría completa en un solo test.
+
+### Pendiente tras T1.3
+
+Sin pendientes propios de la tarea. **Propuesta para T2.2** (decidir al empezar T2): `resolve_bucket_thresholds` debería validar `0 < near < mild < extended` al resolver la config — hoy nadie lo verifica y unos thresholds desordenados invertirían los intervalos en silencio. Validar una vez en la resolución (entrada de config) y no en `_bucketize` (hot path por símbolo×tf).

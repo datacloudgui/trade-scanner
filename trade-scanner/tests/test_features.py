@@ -3,14 +3,22 @@
 No usan AlgorithmImports — L3 es negocio puro; corren dentro de Docker sin CLR.
 T1.1: contrato del dataclass PositionResult (campos, side derivado, igualdad, frozen).
 T1.2: position_vs_sma — contrato de fríos (FeatureNotReady), distance_pct y delegación
-en _bucketize (stubeada con monkeypatch hasta T1.3); SymbolData stub del criterio.
+en _bucketize (stubeada con monkeypatch); SymbolData stub del criterio.
+T1.3: _bucketize — 7 buckets + 6 cortes exactos vía position_vs_sma, no-hardcodeo con
+segundo set de thresholds, y ownership de frontera con epsilon + espejo (directo).
 """
 import dataclasses
 from types import SimpleNamespace
 
 import pytest
 
-from core.features import FeatureNotReady, PositionResult, position_vs_sma
+from core.features import (
+    BUCKETS,
+    FeatureNotReady,
+    PositionResult,
+    _bucketize,
+    position_vs_sma,
+)
 
 
 # T1.1 — side derivado del signo de distance_pct (>= 0 → "above")
@@ -136,3 +144,91 @@ def test_delegates_bucket_and_reads_declared_series(monkeypatch):
     assert result == PositionResult(value=200.0, distance_pct=0.02, bucket="above_mild")
     assert bucketize_calls == [(pytest.approx(0.02, abs=1e-9), THRESHOLDS)]
     assert sd.calls == [("is_ready", "W", 20), ("sma", "W", 20), ("close", "W")]
+
+
+# --- T1.3 — _bucketize: tabla de 7 buckets, fronteras exactas y no-hardcodeo ---
+
+NEAR, MILD, EXT = THRESHOLDS["near"], THRESHOLDS["mild"], THRESHOLDS["extended"]
+EPS = 1e-12  # un ulp grande: inalcanzable vía división real, perfecto para frontera
+
+
+# T1.3 — los 7 buckets (interiores) y los 6 cortes exactos, vía position_vs_sma
+# con SMA=100 (cierres elegidos para que (close-100)/100 caiga exacto en el corte)
+@pytest.mark.parametrize(
+    "close, expected_distance, expected_bucket",
+    [
+        # interiores de los 7 buckets
+        (112.0, 0.12, "extended_above"),
+        (105.0, 0.05, "above_strong"),
+        (101.0, 0.01, "above_mild"),
+        (100.0, 0.0, "near"),
+        (99.0, -0.01, "below_mild"),
+        (95.0, -0.05, "below_strong"),
+        (88.0, -0.12, "extended_below"),
+        # 6 cortes exactos: la frontera pertenece al bucket más alejado de la SMA
+        (110.0, 0.10, "extended_above"),   # +extended: >= inclusivo
+        (103.0, 0.03, "above_strong"),     # +mild
+        (100.5, 0.005, "above_mild"),      # +near
+        (99.5, -0.005, "below_mild"),      # −near: <= inclusivo (espejo)
+        (97.0, -0.03, "below_strong"),     # −mild
+        (90.0, -0.10, "extended_below"),   # −extended
+    ],
+)
+def test_seven_buckets_and_six_exact_cuts(close, expected_distance, expected_bucket):
+    result = position_vs_sma(StubSymbolData(100.0, close), "D", 20, THRESHOLDS)
+    assert result.bucket == expected_bucket
+    assert result.distance_pct == pytest.approx(expected_distance, abs=1e-9)
+
+
+# T1.3 — no-hardcodeo: un segundo set de thresholds mueve los cortes
+CUSTOM_THRESHOLDS = {"near": 0.01, "mild": 0.05, "extended": 0.08}
+
+
+@pytest.mark.parametrize(
+    "close, default_bucket, custom_bucket",
+    [
+        (109.0, "above_strong", "extended_above"),  # +9%: bajo 0.10, sobre 0.08
+        (108.0, "above_strong", "extended_above"),  # corte exacto +extended custom
+        (104.0, "above_strong", "above_mild"),      # +4%: mild sube 0.03 → 0.05
+        (100.7, "above_mild", "near"),              # +0.7%: near sube 0.005 → 0.01
+        (99.3, "below_mild", "near"),               # espejo de +0.7%
+        (92.0, "below_strong", "extended_below"),   # corte exacto −extended custom
+    ],
+)
+def test_second_threshold_set_moves_the_cuts(close, default_bucket, custom_bucket):
+    sd = StubSymbolData(100.0, close)
+    assert position_vs_sma(sd, "D", 20, THRESHOLDS).bucket == default_bucket
+    assert position_vs_sma(sd, "D", 20, CUSTOM_THRESHOLDS).bucket == custom_bucket
+
+
+# T1.3 — ownership de cada frontera, directo sobre _bucketize: el valor exacto cae
+# en el bucket más alejado de la SMA; un epsilon hacia el centro lo devuelve al
+# bucket interior. Seguro contra off-by-epsilon (< vs <=) en refactors futuros.
+@pytest.mark.parametrize(
+    "distance, expected_bucket",
+    [
+        (NEAR - EPS, "near"),           (NEAR, "above_mild"),
+        (MILD - EPS, "above_mild"),     (MILD, "above_strong"),
+        (EXT - EPS, "above_strong"),    (EXT, "extended_above"),
+        (-NEAR + EPS, "near"),          (-NEAR, "below_mild"),
+        (-MILD + EPS, "below_mild"),    (-MILD, "below_strong"),
+        (-EXT + EPS, "below_strong"),   (-EXT, "extended_below"),
+    ],
+)
+def test_bucketize_boundary_ownership_with_epsilon(distance, expected_bucket):
+    assert _bucketize(distance, THRESHOLDS) == expected_bucket
+
+
+# T1.3 — propiedad espejo: bucketize(-d) es el reflejo de bucketize(d) para todo d
+# (vale también en los cortes porque "frontera → bucket más alejado" es simétrico)
+def test_bucketize_mirror_symmetry():
+    mirror = {
+        "extended_above": "extended_below",
+        "above_strong": "below_strong",
+        "above_mild": "below_mild",
+        "near": "near",
+    }
+    for d in (0.0, 0.002, NEAR, 0.01, MILD, 0.05, EXT, 0.12):
+        above = _bucketize(d, THRESHOLDS)
+        assert above in BUCKETS
+        assert _bucketize(-d, THRESHOLDS) == mirror[above], f"espejo roto en d={d}"

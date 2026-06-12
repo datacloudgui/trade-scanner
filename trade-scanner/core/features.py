@@ -19,6 +19,19 @@ class FeatureNotReady(Exception):
     """
 
 
+# Set cerrado de los 7 buckets (tabla del spec). Orden: de más arriba a más
+# abajo de la SMA. T3 valida `buckets_allowed` de las rules contra este set.
+BUCKETS: tuple[str, ...] = (
+    "extended_above",
+    "above_strong",
+    "above_mild",
+    "near",
+    "below_mild",
+    "below_strong",
+    "extended_below",
+)
+
+
 @dataclass(frozen=True)
 class PositionResult:
     """Posición del cierre respecto a una SMA: valor usado, distancia relativa y bucket.
@@ -58,5 +71,27 @@ def position_vs_sma(
 
 
 def _bucketize(distance_pct: float, thresholds: dict[str, float]) -> str:
-    """Clasifica la distancia en los 7 buckets (tabla del spec). Implementación: T1.3."""
-    raise NotImplementedError("_bucketize se implementa en T1.3")
+    """Clasifica la distancia en los 7 buckets con los cortes near < mild < extended.
+
+    Invariante de fronteras: un valor exactamente en un corte cae en el bucket
+    más alejado de la SMA — `>=` en el piso de los buckets above y, por espejo,
+    `<=` en el techo de los below (la cascada lo expresa con `>` sobre el corte
+    negado). La cascada va de arriba hacia abajo: exhaustiva y sin solapes por
+    construcción.
+    """
+    near, mild, extended = (
+        thresholds["near"], thresholds["mild"], thresholds["extended"]
+    )
+    if distance_pct >= extended:
+        return "extended_above"
+    if distance_pct >= mild:
+        return "above_strong"
+    if distance_pct >= near:
+        return "above_mild"
+    if distance_pct > -near:
+        return "near"
+    if distance_pct > -mild:
+        return "below_mild"
+    if distance_pct > -extended:
+        return "below_strong"
+    return "extended_below"

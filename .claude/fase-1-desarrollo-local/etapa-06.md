@@ -139,7 +139,7 @@ Tabla (intervalos; `t = thresholds`):
 
 ## Done when (medible)
 
-- [ ] `position_vs_sma` clasifica los 7 buckets y los 6 cortes exactos; test de frontera verde con `thresholds` por defecto y con un segundo set (no-hardcodeo) — `bash scripts/run_tests.sh`.
+- [x] `position_vs_sma` clasifica los 7 buckets y los 6 cortes exactos; test de frontera verde con `thresholds` por defecto y con un segundo set (no-hardcodeo) — `bash scripts/run_tests.sh`. (2026-06-12: 82 passed; T1.1+T1.2+T1.3)
 - [ ] `resolve_bucket_thresholds` verifica las 3 rutas (global / override-estrategia / defaults) con mock.
 - [ ] `AboveSMA` aplica AND sobre todos los `tf` y emite `evidence` `{tf:{period:{value,distance_pct,bucket}}}`; tests pasa/falla + `buckets_allowed` inválido verdes.
 - [ ] `NotExtended` reutiliza `AboveSMA`, corta en `max_pct`, evidencia coherente.
