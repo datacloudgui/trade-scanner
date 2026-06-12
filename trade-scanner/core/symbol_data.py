@@ -118,6 +118,13 @@ class SymbolData:
                 f"(construidos: {sorted(self.timeframes)})"
             ) from None
 
+    def close(self, tf: str) -> float:
+        """Cierre de la última barra consolidada del timeframe (lectura para L3, D3 Etapa 6).
+
+        Sin guard de consolidated=None: el contrato de fríos vive en L3
+        (position_vs_sma exige is_ready antes de leer)."""
+        return float(self.consolidator(tf).consolidated.close)
+
     def sma(self, tf: str, period: int) -> Any:
         """SMA declarada para (tf, period); KeyError con las series declaradas si no existe."""
         try:

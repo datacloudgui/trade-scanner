@@ -282,3 +282,19 @@ def test_5b_t3_consolidator_accessor_and_observer_order():
     with pytest.raises(KeyError) as err:
         sd.consolidator("M")
     assert "'M'" in str(err.value) and "'D'" in str(err.value) and "'W'" in str(err.value)
+
+
+# --- D3 (Etapa 6) — close(tf): lectura del cierre consolidado para L3 ---
+
+def test_etapa6_close_reads_last_consolidated_close_per_timeframe():
+    sd = SymbolData(SPY, {"W": {2}})
+    push_week(sd, 2024, 1, 8, 10)    # semana 1 cierra 10
+    push_week(sd, 2024, 1, 15, 20)   # semana 2 cierra 20
+    # trailing bar (lun sem.3, close 99) + scan: emite el viernes diario y la W2
+    sd.update(flat_day(2024, 1, 22, 99))
+    sd.scan(datetime(2024, 1, 23))
+    assert sd.close("W") == 20.0   # última W consolidada; la semana en curso NO contamina
+    assert sd.close("D") == 99.0   # la raíz D existe siempre, declare D periodos o no
+    assert isinstance(sd.close("D"), float)  # frontera L2→L3 normalizada (no decimal C#)
+    with pytest.raises(KeyError):
+        sd.close("M")  # timeframe sin consolidator → KeyError del accessor consolidator()
