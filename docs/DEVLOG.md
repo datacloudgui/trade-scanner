@@ -22,7 +22,7 @@ Horas: 7
 
 ## 2026-06-10
 
-Horas: 5h (4ptes)
+Horas: 8h (2ptes)
 
 ### Trabajo realizado
 - Diseño y ejecucion de Etapa 3 exploracion de contratos de datos para archivo de entrada usando ejemplo de barchart, diseño de universos de acciones.
@@ -31,6 +31,11 @@ Horas: 5h (4ptes)
 - Diseño Etapa 5 (etapa critica): Revision detallada de requisitos y decision de subdividir en etapas 5A y 5B.
 - Diseño y ejecucion de etapa 5A: Registro de timeline, indicadores, warmup de indicadores y construccion de barras (velas).
 - Prediseño etapa 5B con alineación de la documentacion y estado actual del proyecto luego de la etapa 5B.
+#### Tarde - Noche
+- Finalizacion diseño etapa 5B: 4 Fases 8 tareas.
+- Finalizacion Fase 1 pipeline completo con SPY historico LEAN .zip: Tareas 1 a 4.
+- Archivo de salida pasa validacion manual con trading view de valores de medias en tres marcos diferentes D, W, M.
+
 
 
 ### Comentarios
