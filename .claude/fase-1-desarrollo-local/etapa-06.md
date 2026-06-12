@@ -1,6 +1,6 @@
 # Etapa 6 — Features y Rules
 
-**Estado:** pendiente
+**Estado:** en progreso
 **Depende de:** Etapa 5B (`core/symbol_data.py` con SMAs registradas + `is_ready` + `working_bar`; warmup integrado en `main.py`)
 **Estimado:** 4–6 h (L3 + L4 aisladas, sin pipeline)
 **Contexto:** primera capa de negocio puro. 5A/5B entregaron `SymbolData` caliente y validado. Aquí se construyen los cómputos de lectura (L3) y los predicados parametrizados con evidencia (L4) como unidades **aisladas y testeables a mano**, sin ensamblar el pipeline (Etapa 7) ni la salida (Etapa 8). Todo el umbralado vive en `config/strategies.json` (ObjectStore), nunca en código.

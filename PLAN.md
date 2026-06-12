@@ -286,7 +286,7 @@ Variante losers: top N negativos, reglas propias (placeholder, sin reglas en V1)
 - [x] Viabilidad de SMA 200 por marco/proveedor documentada: M:200 viable en Stooq/zip (budget=4300 dev), excluida en prod (budget=1100 < 4221) con warning automático. Guardrail operativo (2026-06-12, T6.2)
 
 ## Etapa 6 — Features y Rules
-**Estado:** pendiente
+**Estado:** en progreso
 **Objetivo:** feature `position_vs_sma` (clasificación en buckets configurables) y rules `AboveSMA`/`NotExtended` con evidencia, como unidades aisladas que respetan capas; umbralado en ObjectStore
 **Depende de:** Etapa 5B
 **Spec detallado:** [.claude/fase-1-desarrollo-local/etapa-06.md](.claude/fase-1-desarrollo-local/etapa-06.md)
