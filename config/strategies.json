@@ -2,7 +2,7 @@
   "environments": {
     "dev":  {
       "top_n": 2,
-      "max_universe": 2,
+      "max_universe": 4,
       "universe": "sample_dev",
       "timeframes": { "D": [8, 20, 200], "W": [8, 20, 200], "M": [8, 20, 200] },
       "warmup_budget": { "daily": 4300 },

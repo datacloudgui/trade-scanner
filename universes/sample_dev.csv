@@ -1,3 +1,6 @@
 Symbol,Name,"5D %Chg",Latest,Change,%Change,"5D Chg","5D High","5D Low","5D Avg Vol",Time
 SPY,"SPDR S&P 500 ETF Trust",+1.42%,595.27,2.18,+0.37%,8.34,597.10,586.93,72184500,2026-06-05
+AAPL,"Apple Inc",+2.10%,205.40,1.85,+0.91%,4.22,207.95,200.11,54320000,2026-06-05
+IBM,"International Business Machines",+0.85%,281.30,0.95,+0.34%,2.37,283.50,277.60,4510000,2026-06-05
+FB,"Meta Platforms Inc (sample data ticker FB)",+1.05%,294.53,1.40,+0.48%,3.06,296.50,288.90,18030000,2026-06-05
 "Downloaded from Barchart.com as of 06-05-2026 08:51pm CDT"

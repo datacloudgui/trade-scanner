@@ -354,3 +354,39 @@ COMPLETO** (checkboxes F1 marcados en etapa-05b.md y PLAN.md).
   (pregunta abierta nº3 del spec).
 - Al añadir AAPL (tiene splits): el fixture T4 es solo-SPY y no se toca; la decisión
   RAW-vs-SPLIT_ADJUSTED por símbolo queda anotada arriba para T7.3.
+
+---
+
+## T5.1 — Universo dev multi-símbolo con zips LEAN (2026-06-11)
+
+### Decisión: 4 símbolos (SPY/AAPL/IBM/FB), zips LEAN locales como fuente
+
+- El usuario instruyó usar los zips ya descargados (`aapl.zip`, `fb.zip`, `ibm.zip` además
+  de `spy.zip`) en vez del converter Stooq para este paso; preguntado por el conflicto
+  FB↔M:200, **eligió incluir los 4 símbolos**.
+- Cobertura: aapl/ibm/spy 1998→2021 (5848 barras, M:200 viable); **fb 2946 barras** —
+  historia propia de Facebook solo desde la IPO (2012); las filas 1999–2012 del zip son
+  de otro emisor con el ticker FB (el map file de LEAN resuelve el mapeo). **M:200
+  no-ready esperado para FB** → ejercita el path real de `is_ready=False` + log.
+- **Impacto en Done-when F2:** "M:200 en los tres" pasa a "M:200 en SPY/AAPL/IBM; FB
+  documentado como no-ready". Editado en etapa-05b.md.
+- `dev.max_universe` 2→4 en `config/strategies.json`: con 2, `UniverseSpec` truncaba el
+  universo a `[AAPL, FB]` (orden alfabético) y SPY quedaba fuera. `top_n=2` se conserva.
+- `seed_sample_data.sh` ahora baja daily+map+factor de aapl/ibm/fb (idempotente; en este
+  workspace ya existían, el script cubre clones frescos).
+- El converter Stooq (T5.2–T5.4) sigue pendiente: los zips LEAN terminan en 2021-03-31,
+  la validación manual ≤0,25% contra TradingView (T6.3) exige data reciente.
+
+### Verificación (criterio de T5.1)
+
+- `UniverseSpec("universes/sample_dev.csv", "avg_vol_5d > 1e6 and price > 5", max_tickers=4)`
+  sobre el storage sembrado → `["AAPL", "FB", "IBM", "SPY"]` (orden alfabético del parser).
+- `bash scripts/run_tests.sh` → **33 passed**.
+
+### Pendiente tras T5.1
+
+- **T6.1 con salvedad FB:** backtest dev 4 símbolos → SPY/AAPL/IBM `ready` completos;
+  FB `ready` en D/W y M:8/20 pero **M:200 no-ready** (loguear, no evaluar).
+- **AAPL/IBM/FB tienen splits** y sus factor files del repo LEAN son REALES (no neutros):
+  el cross-check/fixture multi-símbolo debe usar SPLIT_ADJUSTED coherente (nota previa de T4).
+- Converter Stooq + cross-check SPY (T5.2–T5.4) y validación manual (T6.3) sin cambios.

@@ -49,4 +49,12 @@ fetch "daily/spy.zip"
 fetch "map_files/spy.csv"
 fetch "factor_files/spy.csv"
 
+# Universo dev multi-símbolo (Etapa 5B T5.1): daily + map/factor de AAPL/IBM/FB.
+# FB solo tiene historia propia desde la IPO 2012 → M:200 no-ready (decisión 2026-06-11).
+for sym in aapl ibm fb; do
+  fetch "daily/${sym}.zip"
+  fetch "map_files/${sym}.csv"
+  fetch "factor_files/${sym}.csv"
+done
+
 echo "Listo."

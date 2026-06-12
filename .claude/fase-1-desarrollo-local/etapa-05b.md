@@ -2,8 +2,8 @@
 
 **Estado:** en progreso (2026-06-11)
 **Depende de:** Etapa 5A (`core/timeframes.py` + `core/symbol_data.py`, 31 tests verdes)
-**Estimado:** 8–12 h, repartidas por fase (F1 ~3–4 h · F2 ~1 h · F3 ~4–6 h · F4 ~1 h)
-**Contexto:** segunda mitad de la antigua Etapa 5. 5A entregó la lógica de consolidación/registro/warmup verificada por tests sintéticos; aquí se integra en `main.py` con datos reales, se valida la precisión de las SMAs contra una plataforma de referencia (criterio DONE nº1 del SPECS) y se de-riesga el path de datos de Alpaca para Etapa 9. Refinamiento del pre-spec en [etapa-05b-checkpoint.md](etapa-05b-checkpoint.md); análisis original en [etapa-05.md](etapa-05.md).
+**Estimado:** 8–11 h, repartidas por fase (F1 ~3–4 h ✅ · F2 ~5–7 h). El smoke-test de Alpaca salió de 5B (ver [ADR-003](../decisions/ADR-003-stooq-como-fuente-de-datos.md))
+**Contexto:** segunda mitad de la antigua Etapa 5. 5A entregó la lógica de consolidación/registro/warmup verificada por tests sintéticos; aquí se integra en `main.py` con datos reales, se valida la precisión de las SMAs contra una plataforma de referencia (criterio DONE nº1 del SPECS) usando data reciente de Stooq. El de-risk del path de datos live (Stooq custom-data vs Alpaca) se difirió a Etapa 9 — [ADR-003](../decisions/ADR-003-stooq-como-fuente-de-datos.md). Refinamiento del pre-spec en [etapa-05b-checkpoint.md](etapa-05b-checkpoint.md); análisis original en [etapa-05.md](etapa-05.md).
 
 ---
 
@@ -17,9 +17,9 @@
 
 ### D1 — Slice vertical SPY primero (orden de construcción)
 
-Se construye el camino completo de `main.py` con **un solo símbolo (SPY)** antes de invertir en datos. Razón: el `spy.zip` local ya cubre **1998–2021** (23 años → M:200 viable) → cero trabajo de datos para el primer output; SPY solo ejercita todo el integration path (SymbolData, warmup, wiring de suscripción, `plan_warmup` global, logs, archivo de validación). El converter de datos —la única pieza de trabajo real— se difiere a F3 sin bloquear la integración. Alineado con el *walking skeleton* de Etapa 2 y con el ethos spec-driven (hito verificable antes de la inversión grande).
+Se construye el camino completo de `main.py` con **un solo símbolo (SPY)** antes de invertir en datos. Razón: el `spy.zip` local ya cubre **1998–2021** (23 años → M:200 viable) → cero trabajo de datos para el primer output; SPY solo ejercita todo el integration path (SymbolData, warmup, wiring de suscripción, `plan_warmup` global, logs, archivo de validación). El converter de datos —la única pieza de trabajo real— se difiere a F2 sin bloquear la integración. Alineado con el *walking skeleton* de Etapa 2 y con el ethos spec-driven (hito verificable antes de la inversión grande).
 
-**El hito de F1 es "pipeline verde" (backtest corre + archivo escrito + regresión interina), NO el Done-when de precisión** (ese exige data reciente de F3).
+**El hito de F1 es "pipeline verde" (backtest corre + archivo escrito + regresión interina), NO el Done-when de precisión** (ese exige data reciente de F2).
 
 ### D2 — Entorno `dev` como harness de validación (overrides a nivel environment)
 
@@ -45,15 +45,14 @@ Si `set_warm_up` falla o diverge → **rollback** a la ruta manual probada en 5A
 
 Solo hay minute data de SPY para 2013-10; M:200 exige arrancar ~2016. Por eso 5B suscribe a **DAILY** y valida **barras cerradas** (las SMAs W/M no incluyen la barra en curso — comportamiento correcto y deseado). `working_bar`/minute/`partial_bar` pertenecen a `market_close` y se ejercitan en **Etapa 7**, no aquí. La suscripción daily alimenta el consolidator diario 1:1.
 
-### D6 — Triple fuente complementaria + cross-validación
+### D6 — Doble fuente complementaria + cross-validación (SPY-only)
 
 | Fuente | Rol | Profundidad | M:200 | Fase |
 |---|---|---|---|---|
-| **Sample data LEAN** (SPY ya; AAPL/IBM en F2) | Baseline garantizado-compatible + cross-check del converter | SPY 1998–2021; AAPL/IBM ~1998–2014 | ✅ (fecha vieja) | F1/F2 |
-| **Stooq** | **Primaria** — validación *reciente* contra TradingView | 30+ años, hasta hoy, split-adjusted | ✅ | F3 |
-| **Alpaca free (IEX)** | Smoke-test de conectividad (de-risk Etapa 9) | 2016-01-01+ (~10 a) | ❌ | F4 |
+| **Sample data LEAN** (solo SPY) | Baseline garantizado-compatible + cross-check del converter (solo SPY) | SPY 1998–2021 | ✅ (fecha vieja) | F1 |
+| **Stooq** | **Primaria** — los 3 símbolos; validación *reciente* contra TradingView | 30+ años, hasta hoy, split-adjusted | ✅ | F2 |
 
-Cross-validación de regalo: SMA de SPY vía converter Stooq == SMA de SPY-zip en fechas solapadas → valida el converter por sí solo.
+Cross-validación de regalo: SMA de SPY vía converter Stooq == SMA de SPY-zip en fechas solapadas → valida el converter por sí solo (SPY es el único símbolo con zip de referencia local; AAPL/IBM se validan manualmente). El smoke-test de Alpaca (data API, de-risk Etapa 9) se difirió fuera de 5B — [ADR-003](../decisions/ADR-003-stooq-como-fuente-de-datos.md).
 
 ---
 
@@ -66,7 +65,7 @@ Cross-validación de regalo: SMA de SPY vía converter Stooq == SMA de SPY-zip e
 #### T1 — Harness dev: universo + config (sin código de algoritmo)
 
 - **T1.1** — `universes/sample_dev.csv` en **formato Barchart §5** (columnas `Symbol,Name,5D %Chg,Latest,Change,%Change,5D Chg,5D High,5D Low,5D Avg Vol,Time`) con fila **SPY** y valores que pasen el filtro `avg_vol_5d > 1e6 and price > 5` (AAPL/IBM se añaden en T5.2). Debe parsear limpio con `UniverseSpec` (alias map + footer strip).
-- **T1.2** — `config/strategies.json`: en `environments.dev` añadir `universe: "sample_dev"`, `timeframes: {D:[8,20,200], W:[8,20,200], M:[8,20,200]}`, `warmup_budget: {"daily": 4300}`. Prod sin tocar todavía (su SMA 200 es T7.1). *(Nota: el cambio previo de dev `top_n`/`max_universe` 5→2/10→2 es intencional — se conserva.)*
+- **T1.2** — `config/strategies.json`: en `environments.dev` añadir `universe: "sample_dev"`, `timeframes: {D:[8,20,200], W:[8,20,200], M:[8,20,200]}`, `warmup_budget: {"daily": 4300}`. Prod sin tocar todavía (su SMA 200 es T6.2). *(Nota: el cambio previo de dev `top_n`/`max_universe` 5→2/10→2 es intencional — se conserva.)*
 - **T1.3** — `scripts/seed_object_store.sh`: incluir `sample_dev.csv` en el glob sembrado a `storage/universes/`.
 
 **Criterio de aceptación:** `bash scripts/seed_object_store.sh` deja `storage/universes/sample_dev.csv`; un `UniverseSpec` sobre esa clave con el filtro dev devuelve `["SPY"]`.
@@ -93,58 +92,43 @@ Cross-validación de regalo: SMA de SPY vía converter Stooq == SMA de SPY-zip e
 
 #### T4 — Fixture de regresión interino (protege la matemática)
 
-Congelar las SMAs computadas sobre **SPY-zip** como test de regresión en `tests/` (recalcular con la misma data y comparar con `==`/tolerancia estrecha). **No es** la validación manual de precisión (esa es T7); su rol es evitar que los refactors de F2–F3 rompan la matemática en silencio, y sirve de cross-check del gate de `set_warm_up` (T2.2).
+Congelar las SMAs computadas sobre **SPY-zip** como test de regresión en `tests/` (recalcular con la misma data y comparar con `==`/tolerancia estrecha). **No es** la validación manual de precisión (esa es T6.3); su rol es evitar que los refactors de F2 rompan la matemática en silencio, y sirve de cross-check del gate de `set_warm_up` (T2.2).
 
 **Criterio de aceptación:** `bash scripts/run_tests.sh` verde con el nuevo test de regresión de SPY.
 
-> **★ Hito F1 — "pipeline verde":** backtest dev SPY corre, loguea warmup (con la decisión `set_warm_up`/manual), escribe el archivo de validación, regresión interina verde. La precisión contra charts recientes llega en F3.
+> **★ Hito F1 — "pipeline verde":** backtest dev SPY corre, loguea warmup (con la decisión `set_warm_up`/manual), escribe el archivo de validación, regresión interina verde. La precisión contra charts recientes llega en F2.
 
 ---
 
-### FASE 2 — Ampliar data (prueba la agnosticidad + batch multi-símbolo)
+### FASE 2 — Data reciente Stooq + batch multi-símbolo + validación de precisión (Done-when real)
 
-#### T5 — Sample data LEAN: AAPL + IBM (zips, cero conversión)
+> **Reorganización (2026-06-11):** la antigua F2 (zips LEAN de AAPL/IBM) se **eliminó**; los 3 símbolos provienen ahora del converter Stooq (una sola fuente productora, sin sembrar zips extra). El check de **batch multi-símbolo** se **pliega** aquí (T6.1). El cross-check converter-vs-zip se mantiene **solo en SPY** (único símbolo con `spy.zip` de referencia local); la precisión de AAPL/IBM se valida manualmente (T6.3). El antiguo smoke-test de Alpaca se retiró de 5B → ver [ADR-003](../decisions/ADR-003-stooq-como-fuente-de-datos.md) y Etapa 9.
 
-- **T5.1** — Extender `scripts/seed_sample_data.sh`: `fetch daily/aapl.zip`, `daily/ibm.zip`, `factor_files/{aapl,ibm}.csv`, `map_files/{aapl,ibm}.csv` (mismo `BASE_URL` del repo público LEAN). **Verificar que esos paths existen en el repo antes de fijarlos**; si alguno falta, sustituir por otro símbolo con daily largo disponible.
-- **T5.2** — Añadir filas **AAPL, IBM** a `universes/sample_dev.csv` (formato Barchart, pasan el filtro) → 3 símbolos en dev.
+#### T5 — Universo dev a 3 símbolos + converter host-side agnóstico (Stooq)
 
-**Criterio de aceptación:** `lean backtest` dev con 3 símbolos: los tres `ready`; el log confirma **una** llamada `self.history`/warmup por resolución (batch agrupado, no loop por símbolo); M:200 disponible en los tres.
+- **T5.1** — ✅ 2026-06-11 (redefinida por instrucción del usuario: zips LEAN ya descargados en vez de Stooq para este paso; decisión: **4 símbolos SPY/AAPL/IBM/FB**). Filas **AAPL, IBM, FB** añadidas a `universes/sample_dev.csv` (formato Barchart §5, pasan el filtro `avg_vol_5d > 1e6 and price > 5`); `seed_sample_data.sh` extendido (daily+map+factor de aapl/ibm/fb, idempotente); `dev.max_universe` 2→4. `UniverseSpec` sobre `sample_dev` con el filtro dev devuelve `["AAPL","FB","IBM","SPY"]` (orden alfabético del parser). **FB: M:200 no-ready esperado** (IPO 2012, 2946 barras) → caso real de `is_ready=False`. Detalle en [etapa-05b-t5-checkpoint.md](etapa-05b-t5-checkpoint.md).
+- **T5.2** — Núcleo del converter: `fetch → parsear fecha + OHLC×10000 (int) → ordenar ascendente → escribir <sym>.csv dentro de <sym>.zip` en `data/equity/usa/daily/`. `requests` crudo, sin SDK (D3).
+- **T5.3 (FABLE xhigh)** — factor_files neutros + map_files + **cross-check SPY-only**. Escribir `factor_files/<sym>.csv` neutro (`<firstdate>,1,1,<ref>`) y `map_files/<sym>.csv` de una línea; **verificar contra el reader de LEAN** que los precios salen sin re-ajuste (agnóstico al modo). Cross-check **únicamente sobre SPY**: SMA de SPY vía converter Stooq **==** SMA de SPY-zip en fechas solapadas (valida el converter end-to-end). AAPL/IBM **no** se cross-checkean contra zip (no hay zip de referencia local) → su precisión se valida manualmente en T6.3.
+- **T5.4** — Fetcher Stooq: **confirmar patrón de URL** (`https://stooq.com/q/d/l/?s=spy.us&i=d`), toggle/convención split-adjusted, orden de fechas y headers de columnas antes de codear (pregunta abierta); bajar SPY/AAPL/IBM con historia hasta hoy.
 
----
+**Criterio de aceptación:** el converter produce zips LEAN válidos para los 3 símbolos con data reciente; el cross-check **SPY** (converter vs zip) coincide dentro de tolerancia estrecha; `UniverseSpec` dev devuelve los 3 símbolos.
 
-### FASE 3 — Data reciente + validación de precisión (Done-when real)
+#### T6 — Batch multi-símbolo + config prod + validación manual + fixture autoritativo
 
-#### T6 — Converter host-side agnóstico a fuente (`scripts/`)
+- **T6.1** — **Batch multi-símbolo** (plegado de la antigua F2): `lean backtest` dev con los 3 símbolos Stooq → los tres `ready`; el log confirma **una** llamada `self.history`/warmup por resolución (batch agrupado por resolución, **NO** loop por símbolo); M:200 disponible en los tres. Agnosticidad demostrada: añadir AAPL/IBM no requirió cambios en `main.py`.
+- **T6.2** — `config/strategies.json` prod: `timeframes` de las 4 estrategias → `D:[8,20,200]`, `W:[8,20,200]` (M queda `[8,20]`); `environments.prod.warmup_budget = {"daily": <bajo>}` que **excluye M:200** → verificar el warning de exclusión en el log. Backtest prod corre sin errores.
+- **T6.3** — Validación manual del usuario (TradingView **o** IBKR, sin APIs): comparar los valores del archivo T3 (data Stooq reciente) para SPY/AAPL/IBM: SMA 8/20/200 en D y W; 8/20/200 en M (M:200 viable con Stooq). Tolerancia **≤0,25%** relativa; desviaciones mayores se explican (ajuste, convención de semana) o se corrigen.
+- **T6.4** — Congelar los valores confirmados como **fixture autoritativo** + test de regresión en `tests/` (extiende/reemplaza el interino T4).
 
-- **T6.1** — Núcleo del converter: `fetch → parsear fecha + OHLC×10000 (int) → ordenar ascendente → escribir <sym>.csv dentro de <sym>.zip` en `data/equity/usa/daily/`. `requests` crudo, sin SDK (D3).
-- **T6.2 (FABLE xhigh)** — factor_files neutros + map_files + cross-check. Escribir `factor_files/<sym>.csv` neutro (`<firstdate>,1,1,<ref>`) y `map_files/<sym>.csv` de una línea; **verificar contra el reader de LEAN** que los precios salen sin re-ajuste (agnóstico al modo). Cross-check: SMA de SPY vía converter Stooq **==** SMA de SPY-zip en fechas solapadas (valida el converter end-to-end).
-- **T6.3** — Fetcher Stooq: **confirmar patrón de URL** (`https://stooq.com/q/d/l/?s=spy.us&i=d`), toggle/convención split-adjusted, orden de fechas y headers de columnas antes de codear; bajar SPY/AAPL/IBM con historia hasta hoy.
+**Criterio de aceptación:** 3 símbolos `ready` con batch agrupado verificado en log y M:200 en los tres; agnosticidad demostrada (`main.py` sin cambios al añadir AAPL/IBM); desviaciones manuales ≤0,25% registradas; test de regresión verde en Docker; prod con SMA 200 en D/W corriendo y warning de exclusión de M:200 verificado.
 
-**Criterio de aceptación:** el converter produce zips LEAN válidos para los 3 símbolos con data reciente; el cross-check SPY (converter vs zip) coincide dentro de tolerancia estrecha; `lean backtest` dev los consume sin cambios en `main.py` (agnosticidad demostrada).
-
-#### T7 — Config prod + validación manual + fixture autoritativo
-
-- **T7.1** — `config/strategies.json` prod: `timeframes` de las 4 estrategias → `D:[8,20,200]`, `W:[8,20,200]` (M queda `[8,20]`); `environments.prod.warmup_budget = {"daily": <bajo>}` que **excluye M:200** → verificar el warning de exclusión en el log. Backtest prod corre sin errores.
-- **T7.2** — Validación manual del usuario (TradingView **o** IBKR, sin APIs): comparar los valores del archivo T3 (data Stooq reciente) para SPY/AAPL/IBM: SMA 8/20/200 en D y W; 8/20/200 en M (M:200 ahora viable con Stooq). Tolerancia **≤0,25%** relativa; desviaciones mayores se explican (ajuste, convención de semana) o se corrigen.
-- **T7.3** — Congelar los valores confirmados como **fixture autoritativo** + test de regresión en `tests/` (extiende/reemplaza el interino T4).
-
-**Criterio de aceptación:** desviaciones ≤0,25% registradas; test de regresión verde en Docker; prod con SMA 200 en D/W corriendo y warning de exclusión de M:200 verificado.
-
----
-
-### FASE 4 — Smoke-test Alpaca (independiente, de-risk Etapa 9)
-
-#### T8 — Conectividad de la API de datos de Alpaca
-
-Script standalone (`scripts/`, host): `GET https://data.alpaca.markets/v2/stocks/SPY/bars?timeframe=1Day&adjustment=split&feed=iex&start=...` con headers `APCA-API-KEY-ID`/`APCA-API-SECRET-KEY` desde `.env` (**ya lleno**, gitignoreado). Imprime N barras y confirma keys válidas. **Aclarar en el script/doc que esto valida la API de DATOS, NO el path de `lean live`** (ese usa el módulo `AlpacaBrokerage` de QC — ADR-002, otra cosa). La optimización de batching de historia contra Alpaca (multi-símbolo, throttle 200 req/min) se difiere a Etapa 9 — ver [etapa-09.md](etapa-09.md).
-
-**Criterio de aceptación:** el script corre y documenta el resultado (conectividad OK con muestra de barras, o el fallo registrado para Etapa 9).
+> **★ Hito F2 — "Done-when real":** converter Stooq produce los 3 símbolos, batch agrupado verificado, validación manual ≤0,25% congelada como fixture autoritativo, prod con SMA 200 D/W + warning M:200. Cierra el criterio DONE nº1 de SPECS. El feed de datos para V1 (Stooq custom-data vs Alpaca) se decide en Etapa 9 — [ADR-003](../decisions/ADR-003-stooq-como-fuente-de-datos.md).
 
 ---
 
 ## Scope
 
-✅ Entra: integración warmup en `main.py` (DAILY, `set_warm_up`-primero con rollback manual), harness dev (overrides universe/timeframes/budget), archivo de validación K=5, triple fuente de datos (zips LEAN + converter Stooq + smoke-test Alpaca), validación manual ≤0,25% + fixtures de regresión, config prod con SMA 200 en D/W.
+✅ Entra: integración warmup en `main.py` (DAILY, `set_warm_up`-primero con rollback manual), harness dev (overrides universe/timeframes/budget), archivo de validación K=5, doble fuente de datos (SPY-zip de baseline + converter Stooq para los 3 símbolos), validación manual ≤0,25% + fixtures de regresión, config prod con SMA 200 en D/W.
 
 ❌ No entra:
 - **`working_bar`/minute/`partial_bar`** — Etapa 7 (D5: 5B valida barras cerradas a DAILY).
@@ -152,7 +136,8 @@ Script standalone (`scripts/`, host): `GET https://data.alpaca.markets/v2/stocks
 - **Pipeline, ranking, ScanResult, exclusión de fríos del scan** — Etapa 7 (aquí solo se expone `is_ready` y se loguea).
 - **OutputSink real** — Etapa 8 (el archivo de validación es artefacto temporal vía ObjectStore directo).
 - **Consolidators intradía reales** (5m/15m/30m) — etapa futura.
-- **`lean live` / brokerage Alpaca / `lean data download` / optimización de batching de historia live** — ADR-002 + Etapa 9 (T8 solo toca la API de datos, no el brokerage; el batching live vive en [etapa-09.md](etapa-09.md)).
+- **Smoke-test de la API de datos de Alpaca** — retirado de 5B; de-risk de conectividad para Etapa 9 ([ADR-003](../decisions/ADR-003-stooq-como-fuente-de-datos.md)).
+- **`lean live` / brokerage Alpaca / `lean data download` / feed de datos live de V1 (Stooq custom-data vs Alpaca) / optimización de batching de historia live** — ADR-002 + ADR-003 + Etapa 9 ([etapa-09.md](etapa-09.md)).
 - **Medición de memoria de 200 símbolos en minute** — Etapa 9.
 
 ---
@@ -174,9 +159,7 @@ Script standalone (`scripts/`, host): `GET https://data.alpaca.markets/v2/stocks
 ## Done when (medible)
 
 - [x] **F1:** `lean backtest` dev con SPY completa el warmup y loguea profundidad derivada con driver (W:200→1010, M:200→4221), duración, `ready/no-ready` y la **decisión de warmup** (`set_warm_up` adoptado con cross-check, o rollback a manual con causa); `storage/validation/sma_validation_*.csv` con K=5 filas/serie; regresión interina de SPY verde (`run_tests.sh`) ✅ 2026-06-11: set_warm_up ADOPTADO (gate 9/9), 9 series × 5 filas, 33 tests verdes
-- [ ] **F2:** AAPL/IBM sembrados (zips LEAN); 3 símbolos `ready`; batch de historia/warmup agrupado por resolución (una llamada, no loop por símbolo) verificado en log; M:200 disponible en los 3
-- [ ] **F3:** converter agnóstico produce zips válidos desde Stooq; cross-check SPY (converter == zip) dentro de tolerancia; validación manual ≤0,25% para SPY/AAPL/IBM (D/W/M 8/20/200) registrada como fixture + test de regresión; prod con SMA 200 en D/W corriendo y warning de exclusión de M:200 verificado
-- [ ] **F4:** smoke-test de la API de datos de Alpaca documentado (conectividad OK con muestra, o fallo registrado para Etapa 9)
+- [ ] **F2** *(ajustado 2026-06-11, decisión del usuario en T5.1: universo dev = 4 símbolos SPY/AAPL/IBM/FB; FB sin M:200 por IPO 2012)*: converter agnóstico produce zips válidos desde Stooq; cross-check **SPY** (converter == zip) dentro de tolerancia; los 4 símbolos `ready` con batch de historia/warmup agrupado por resolución (una llamada, no loop por símbolo) verificado en log; M:200 en SPY/AAPL/IBM y **FB documentado como M:200 no-ready** (caso real de `is_ready=False`, excluido y logueado); `main.py` sin cambios al añadir símbolos (agnosticidad); validación manual ≤0,25% para SPY/AAPL/IBM (D/W/M 8/20/200) registrada como fixture autoritativo + test de regresión; prod con SMA 200 en D/W corriendo y warning de exclusión de M:200 verificado
 - [ ] Viabilidad de SMA 200 por marco/proveedor documentada (M:200 viable en Stooq/zip, no en Alpaca free) y guardrail `warmup_budget` con warning operativo
 - [ ] Commit(s) `[Etapa 5B] ...` por fase
 
@@ -185,7 +168,6 @@ Script standalone (`scripts/`, host): `GET https://data.alpaca.markets/v2/stocks
 ## Preguntas abiertas
 
 - [x] **`set_warm_up` vs manual** — RESUELTA (T2.2, 2026-06-11): `set_warm_up` ADOPTADO; gate dev 9/9 series exactas vs ruta manual. Hallazgo: el flush `scan(self.time)` en `on_warmup_finished` sigue siendo necesario para la cadena W/M (el engine solo escanea el consolidator raíz registrado en `subscription_manager`). Detalle en [etapa-05b-decisiones-y-pendientes.md](etapa-05b-decisiones-y-pendientes.md).
-- [ ] **Patrón de URL y ajuste de Stooq** — confirmar empíricamente en T6.3 (split-adjusted, orden, headers).
-- [ ] **Existencia de `daily/aapl.zip` + `daily/ibm.zip` + factor/map en el repo LEAN** — verificar en T5.1; sustituir símbolo si falta.
+- [ ] **Patrón de URL y ajuste de Stooq** — confirmar empíricamente en T5.4 (split-adjusted, orden, headers).
 - [ ] **Mecanismo del override de `timeframes` dev en `main.py`** — leerlo del environment vs derivarlo: se fija al implementar T2.1 (propuesta: si `environment.timeframes` existe, reemplaza la unión de estrategias para construir `requirements`).
-- [ ] **Resolución del smoke-test Alpaca** — `feed=iex`, `adjustment=split`, ventana corta; confirmar parámetros exactos del endpoint v2 en T8.
+- [ ] **Feed de datos live para V1 (Stooq custom-data vs Alpaca)** — decisión diferida a Etapa 9; evidencia de fiabilidad de Stooq a escala (~200 símbolos/quota) pendiente. Ver [ADR-003](../decisions/ADR-003-stooq-como-fuente-de-datos.md).
