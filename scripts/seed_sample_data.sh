@@ -59,8 +59,10 @@ done
 fetch "factor_files/fb.csv"
 
 # factor_files NEUTROS para AAPL/IBM (Etapa 5B T5.3): sus zips provienen del converter
-# Stooq y ya incluyen ajuste total-return (splits + dividendos). Usar los factores reales
-# del repo LEAN causaría doble ajuste. factor=1 → LEAN sirve los precios tal cual.
+# Stooq (split-only adjusted, sin dividendos — descargados con "skip dividends").
+# Usar los factores reales del repo LEAN causaría doble ajuste. factor=1 → LEAN sirve
+# los precios tal cual, sin re-ajustar. Stooq split-only + factor=1 es coherente con
+# DataNormalizationMode.SPLIT_ADJUSTED y con TradingView vista "Adjusted".
 for sym_date in "aapl:19840907" "ibm:19620102"; do
   sym="${sym_date%%:*}"
   first_date="${sym_date##*:}"

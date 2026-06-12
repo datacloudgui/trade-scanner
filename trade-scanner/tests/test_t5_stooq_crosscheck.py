@@ -1,14 +1,13 @@
 """T5.3 (Etapa 5B): cross-check del converter Stooq — fidelidad de precios + SMAs vía SymbolData.
 
-HALLAZGO (2026-06-11): Stooq provee precios **total-return adjusted** (split + dividendos
-acumulados hacia atrás), NO split-only como el spy.zip de LEAN. Comparar Stooq vs LEAN-zip
-en valores absolutos no es válido (diferencia ~7-23% según el horizonte de dividendos).
-Ver etapa-05b-t5-3-decisiones-y-pendientes.md.
+CONVENCIÓN DE PRECIOS (actualizada 2026-06-12): los CSV de Stooq se descargaron con
+"skip dividends" + "skip others" pero SIN "skip splits". Resultado: precios **split-only
+adjusted** (backward-adjusted por todos los splits hasta la fecha de descarga).
+Ejemplo: AAPL en dic-2015 muestra ~$26-27 (precio nominal ~$105 / factor acumulado 4x
+por el split 4:1 de 2020). Comparar contra TradingView con la vista "Adjusted" (split-only).
 
 OBJETIVO del test: verificar que el converter preserva los precios del CSV Stooq exactamente
-(dentro de la resolución ×10000) y que SymbolData computa SMAs coherentes. La validación
-contra TradingView (T6.3) debe usar la vista "Adjusted" de TradingView para alinear con
-los precios total-return de Stooq.
+(dentro de la resolución ×10000) y que SymbolData computa SMAs coherentes.
 
 Datos requeridos:
   - data/stooq_lean/daily/spy.zip   (converter Stooq)
@@ -129,7 +128,7 @@ def test_t5_spy_stooq_smas_ready_and_reasonable():
             sma = sd.sma(tf, p)
             assert sma.is_ready, f"{tf}:{p} debería estar ready con {len(bars)} barras"
             v = float(sma.current.value)
-            # Stooq total-return adjusted: SPY ~$277 en 2020-06 (vs raw ~$300)
+            # SPY split-only adjusted en 2020-06: ~$300 (sin splits, igual al precio nominal)
             assert 200 < v < 400, f"{tf}:{p} valor fuera de rango plausible: {v:.2f}"
 
     # M:8 y M:20 deben estar ready; M:200 no (cobertura insuficiente desde 2005)
