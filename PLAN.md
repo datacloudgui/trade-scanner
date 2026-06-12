@@ -135,16 +135,16 @@ Una fila/objeto por candidato; serializa a CSV y JSON.
 | `partial_bar`           | `True`/`False`  | bool             | `True` si el precio viene del working bar (intraday)            |
 | `price`                 | float           | float            | Precio usado: close o working_bar.close                         |
 | `time_frames_evaluated` | `D,W,M`         | `["D","W","M"]`  | Timeframes evaluados por esta estrategia                        |
-| `sma_evidence`          | JSON string     | object           | `{tf: {period: {value, dist_pct}}}` — ver ejemplo               |
+| `sma_evidence`          | JSON string     | object           | `{tf: {period: {value, distance_pct, bucket}}}` — ver ejemplo (Etapa 6) |
 | `passed_rules`          | pipe-separated  | array of string  | Reglas que pasaron (ej. `AboveSMA20\|NotExtended`)               |
 | `rules_passed_count`    | int             | int              | Conteo de reglas que pasaron; usado como score de ranking        |
 
-Ejemplo `sma_evidence`:
+Ejemplo `sma_evidence` (clave `distance_pct` y `bucket` añadidos en Etapa 6; `distance_pct` es fracción, no porcentaje):
 ```json
 {
-  "D": {"20": {"value": 150.20, "dist_pct": 2.31}},
-  "W": {"20": {"value": 148.50, "dist_pct": 3.52}},
-  "M": {"20": {"value": 145.00, "dist_pct": 5.86}}
+  "D": {"20": {"value": 150.20, "distance_pct": 0.0231, "bucket": "above_mild"}},
+  "W": {"20": {"value": 148.50, "distance_pct": 0.0352, "bucket": "above_strong"}},
+  "M": {"20": {"value": 145.00, "distance_pct": 0.0586, "bucket": "above_strong"}}
 }
 ```
 
@@ -287,15 +287,23 @@ Variante losers: top N negativos, reglas propias (placeholder, sin reglas en V1)
 
 ## Etapa 6 — Features y Rules
 **Estado:** pendiente
-**Objetivo:** features reutilizables y reglas parametrizadas con evidencia, respetando capas
+**Objetivo:** feature `position_vs_sma` (clasificación en buckets configurables) y rules `AboveSMA`/`NotExtended` con evidencia, como unidades aisladas que respetan capas; umbralado en ObjectStore
 **Depende de:** Etapa 5B
+**Spec detallado:** [.claude/fase-1-desarrollo-local/etapa-06.md](.claude/fase-1-desarrollo-local/etapa-06.md)
 **Alcance:**
-- `core/features.py`: `position_vs_sma(n, tf)`, `extension_pct(n, tf)`, `day_change_pct()` (con y sin working bar), `is_ready()` (indicadores calientes).
-- `core/rules.py`: `AboveSMA(n, tfs)`, `NotExtended(n, max_pct)`, combinadores AND/NOT; cada regla devuelve pasa/no-pasa + evidencia (valores usados).
-- Tests por feature y regla con SymbolData sintético.
+- `core/features.py`: `PositionResult` (dataclass), `position_vs_sma(sd, tf, period, thresholds)` (función pura, D1), `_bucketize` (7 buckets), `FeatureNotReady` (contrato de fríos; manejo en Etapa 7), `resolve_bucket_thresholds` (merge override-estrategia → global → defaults).
+- `core/symbol_data.py` (L2, solo lectura): accesor `close(tf)` — única vía para que L3 obtenga el cierre consolidado (la firma real es `sma(tf, period)` y devuelve indicador → leer `.current.value`).
+- `core/rules.py`: `AboveSMA(period, tfs, buckets_allowed)` (AND sobre todos los tf, valida buckets en construcción), `NotExtended(period, tf, max_pct)` (composición sobre `AboveSMA`, D4), `RuleResult` con evidencia `{tf:{period:{value,distance_pct,bucket}}}`.
+- `config/strategies.json`: sección global `bucket_thresholds` (`{near:0.005, mild:0.03, extended:0.10}` placeholder, calibración en Etapa 9) + override opcional por estrategia (D2).
+- Formateador puro del log de filtrado (líneas `[estrategia] Rule: N → M (−k required)` + `final: N candidatos`) — sin ejecutar el filtrado (Etapa 7).
+- `ScanResult`: añadir `rules_passed_count` y `sma_evidence`; reconciliar §5 (`dist_pct`→`distance_pct`, añadir `bucket`).
+- Tests por feature y rule con SymbolData sintético (fronteras exactas de buckets, AND, merge de thresholds, log literal).
 **Done when:**
-- [ ] Tests de cada feature y regla verdes
-- [ ] Ninguna feature/regla importa nada fuera de SymbolData (revisión de respeto de capas)
+- [ ] `position_vs_sma` clasifica los 7 buckets y los 6 cortes exactos; no-hardcodeo verificado con dos sets de thresholds
+- [ ] `resolve_bucket_thresholds` verifica global / override-estrategia / defaults con mock
+- [ ] `AboveSMA` (AND sobre tfs) y `NotExtended` (corte en `max_pct`) con evidencia `{tf:{period:{value,distance_pct,bucket}}}`; tests verdes
+- [ ] Formateador reproduce literalmente las 4 líneas del log de ejemplo
+- [ ] Ninguna feature/rule importa `QCAlgorithm`/`self.history` (solo leen SymbolData); `ScanResult` y §5 reconciliados
 
 ## Etapa 7 — ScanPipeline + estrategias + schedule
 **Estado:** pendiente

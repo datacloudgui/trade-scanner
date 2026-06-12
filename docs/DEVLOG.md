@@ -22,7 +22,7 @@ Horas: 7
 
 ## 2026-06-10
 
-Horas: 8h (2ptes)
+Horas: 10h
 
 ### Trabajo realizado
 - Diseño y ejecucion de Etapa 3 exploracion de contratos de datos para archivo de entrada usando ejemplo de barchart, diseño de universos de acciones.
@@ -35,7 +35,10 @@ Horas: 8h (2ptes)
 - Finalizacion diseño etapa 5B: 4 Fases 8 tareas.
 - Finalizacion Fase 1 pipeline completo con SPY historico LEAN .zip: Tareas 1 a 4.
 - Archivo de salida pasa validacion manual con trading view de valores de medias en tres marcos diferentes D, W, M.
-
+- Uso de Stooq para validacion de medias recientes con tres acciones.
+- IMPORTANTE: Se encontro limitacion de usar Stooq automaticamente, se deja solo para esa validacion de medias (se debe usar alpaca u otro sistema de datos)
+- Se finaliza la etapa 5, generando un archivo de validacion manual.
+- Se diseña el spec detallado de la etapa 6 con una feature central que calcule la posicion de un precio versus la media movil en un marco especifico.
 
 
 ### Comentarios
