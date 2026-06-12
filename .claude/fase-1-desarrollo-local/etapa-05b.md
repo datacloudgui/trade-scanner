@@ -173,7 +173,7 @@ Script standalone (`scripts/`, host): `GET https://data.alpaca.markets/v2/stocks
 
 ## Done when (medible)
 
-- [ ] **F1:** `lean backtest` dev con SPY completa el warmup y loguea profundidad derivada con driver (W:200→1010, M:200→4221), duración, `ready/no-ready` y la **decisión de warmup** (`set_warm_up` adoptado con cross-check, o rollback a manual con causa); `storage/validation/sma_validation_*.csv` con K=5 filas/serie; regresión interina de SPY verde (`run_tests.sh`)
+- [x] **F1:** `lean backtest` dev con SPY completa el warmup y loguea profundidad derivada con driver (W:200→1010, M:200→4221), duración, `ready/no-ready` y la **decisión de warmup** (`set_warm_up` adoptado con cross-check, o rollback a manual con causa); `storage/validation/sma_validation_*.csv` con K=5 filas/serie; regresión interina de SPY verde (`run_tests.sh`) ✅ 2026-06-11: set_warm_up ADOPTADO (gate 9/9), 9 series × 5 filas, 33 tests verdes
 - [ ] **F2:** AAPL/IBM sembrados (zips LEAN); 3 símbolos `ready`; batch de historia/warmup agrupado por resolución (una llamada, no loop por símbolo) verificado en log; M:200 disponible en los 3
 - [ ] **F3:** converter agnóstico produce zips válidos desde Stooq; cross-check SPY (converter == zip) dentro de tolerancia; validación manual ≤0,25% para SPY/AAPL/IBM (D/W/M 8/20/200) registrada como fixture + test de regresión; prod con SMA 200 en D/W corriendo y warning de exclusión de M:200 verificado
 - [ ] **F4:** smoke-test de la API de datos de Alpaca documentado (conectividad OK con muestra, o fallo registrado para Etapa 9)

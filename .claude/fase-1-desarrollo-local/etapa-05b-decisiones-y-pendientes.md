@@ -299,3 +299,58 @@ resolución DAILY) — sin déficit que comprometa M:200.
   W:200@2016-01-04 = 177.5696, M:200@2016-01-01 = 133.415) son los candidatos a congelar.
 - La interpretación de fechas para el usuario en T7.2 (ej. fila D end `2016-01-01` = sesión
   del 12-31 en TradingView) quedó documentada en el docstring de `_write_validation_file`.
+
+## T4 — fixture de regresión interino de SPY; cierre del hito F1 (2026-06-11)
+
+**Estado:** ✅ completada (33 tests verdes — criterio cumplido). **★ Hito F1 "pipeline verde"
+COMPLETO** (checkboxes F1 marcados en etapa-05b.md y PLAN.md).
+
+### Decisiones tomadas
+
+- **Tercera ruta independiente como fixture:** `tests/test_sma_regression.py` lee
+  `spy.zip` DIRECTO (zipfile + parse del formato LEAN: fecha, OHLC×10000), construye los
+  TradeBars a mano y los empuja por `SymbolData` + `scan(START)`. No usa engine ni
+  `self.history` → además de regresión, valida el parse del formato de datos (útil para
+  el converter de F3). Quedan tres rutas que coinciden exactamente:
+  `set_warm_up (engine) == manual history (gate T2.2) == zip directo (fixture T4)`.
+- **Congelado completo, no solo valores:** por serie se congela `(sma_value, samples,
+  end_time del último punto)` — el end_time detecta off-by-one de fechas (rol que pedía
+  T3) y los samples detectan regresiones de warmup/scan. Tolerancia `rel=1e-12` (la
+  aritmética es decimal determinista; el approx solo absorbe la conversión a float).
+- **`depth` derivado de `plan_warmup`, no hardcodeado** (regla "nunca warmup hardcodeado"
+  aplicada también al test), con un assert explícito `depth == 4221` que obliga a
+  recongelar a propósito si la fórmula cambia.
+- **`run_tests.sh` ahora monta `data/` read-only en `/Data`** (`TRADE_SCANNER_DATA`):
+  el container solo montaba `trade-scanner/`. Es lo correcto: el fixture congela valores
+  sobre la MISMA data que consumió el backtest, y F3 (cross-check del converter contra el
+  reader de LEAN) necesitará el mismo acceso. Si falta el zip → `pytest.skip` con
+  instrucción de seed (no falla en clones sin data).
+- **RAW == SPLIT_ADJUSTED para SPY** (sin splits 1998–2021): el test lee el zip crudo sin
+  aplicar factor files y coincide exacto con el backtest SPLIT_ADJUSTED — coherente con
+  la consideración #5 del spec. Ojo al replicar con símbolos CON splits (AAPL en F2): ahí
+  el crudo NO coincidiría; el fixture multi-símbolo de T7.3 deberá decidir modo por símbolo.
+
+### Verificación (criterio de T4)
+
+- `bash scripts/run_tests.sh` → **33 passed** (32 + regresión nueva, ejecutada, no skipped).
+- El fixture reprodujo los 9 valores del engine al primer intento — exactos en valor,
+  samples (4221/876/202) y end_times (D/M `2016-01-01`, W `2016-01-04`).
+
+### Hito F1 — evidencia consolidada
+
+| Done-when F1 | Evidencia |
+|---|---|
+| Warmup + log de profundidad con driver | `depth=4221 (driver M:200) \| D:200→205, M:200→4221, W:200→1010` (T2.3) |
+| Duración + ready/no-ready | `4221 barras en ~1s`; `ready: 1/1` (T2.3) |
+| Decisión de warmup con cross-check | `set_warm_up ADOPTADO — gate 9/9 series exactas` (T2.2) |
+| `sma_validation_*.csv` K=5/serie | `9 series, 45 filas`, convención de fechas verificada (T3) |
+| Regresión interina verde | 33 passed (T4) |
+
+### Pendiente (Fase 2 — fuera de F1)
+
+- **T5** (siguiente): seed de AAPL/IBM (zips LEAN) + filas en `sample_dev.csv` → 3 símbolos;
+  verificar batch agrupado y M:200 en los tres. Antes de fijar URLs, confirmar que
+  `daily/aapl.zip`, `daily/ibm.zip` y sus factor/map existen en el repo público de LEAN
+  (pregunta abierta nº3 del spec).
+- Al añadir AAPL (tiene splits): el fixture T4 es solo-SPY y no se toca; la decisión
+  RAW-vs-SPLIT_ADJUSTED por símbolo queda anotada arriba para T7.3.

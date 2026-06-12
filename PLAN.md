@@ -279,7 +279,7 @@ Variante losers: top N negativos, reglas propias (placeholder, sin reglas en V1)
 - **F4 — de-risk Etapa 9:** smoke-test de la API de datos de Alpaca (conectividad/keys; NO valida `lean live` — ADR-002).
 - Datos: triple fuente complementaria (zips LEAN + converter Stooq + smoke-test Alpaca); proceso agnóstico a la fuente (todo escribe formato LEAN en `data/`; `main.py` solo lee el feed). `working_bar`/minute/`partial_bar` quedan para Etapa 7.
 **Done when:**
-- [ ] **F1:** `lean backtest` dev con SPY completa el warmup y loguea profundidad derivada con driver (W:200→1010, M:200→4221), duración y ready/no-ready; `storage/validation/sma_validation_*.csv` con K=5 filas/serie; regresión interina de SPY verde
+- [x] **F1:** `lean backtest` dev con SPY completa el warmup y loguea profundidad derivada con driver (W:200→1010, M:200→4221), duración y ready/no-ready; `storage/validation/sma_validation_*.csv` con K=5 filas/serie; regresión interina de SPY verde (2026-06-11: `set_warm_up` adoptado con gate 9/9 vs ruta manual; detalle en [etapa-05b-decisiones-y-pendientes.md](.claude/fase-1-desarrollo-local/etapa-05b-decisiones-y-pendientes.md))
 - [ ] **F2:** AAPL/IBM sembrados; 3 símbolos ready; batch agrupado por resolución (una llamada, no loop por símbolo) verificado en log
 - [ ] **F3:** converter Stooq produce zips válidos; cross-check SPY (converter==zip) dentro de tolerancia; validación manual ≤0,25% (SPY/AAPL/IBM, D/W/M 8/20/200) como fixture + test de regresión; prod con SMA 200 en D/W y warning de exclusión de M:200 verificado
 - [ ] **F4:** smoke-test de la API de datos de Alpaca documentado (conectividad OK o fallo registrado para Etapa 9)

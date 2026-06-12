@@ -26,7 +26,9 @@ docker run --rm --entrypoint bash \
   -e PYTHONNET_CORECLR_RUNTIME_CONFIG="$RUNTIME_CONFIG" \
   -e PYTHONPATH=/Project \
   -e PYTHONDONTWRITEBYTECODE=1 \
+  -e TRADE_SCANNER_DATA=/Data \
   -v "$PROJECT":/Project \
+  -v "$WORKSPACE/data":/Data:ro \
   "$IMAGE" -c "
     set -e
     pip install -q --root-user-action=ignore clr_loader pytest
