@@ -280,10 +280,10 @@ Variante losers: top N negativos, reglas propias (placeholder, sin reglas en V1)
 - Datos: triple fuente complementaria (zips LEAN + converter Stooq + smoke-test Alpaca); proceso agnóstico a la fuente (todo escribe formato LEAN en `data/`; `main.py` solo lee el feed). `working_bar`/minute/`partial_bar` quedan para Etapa 7.
 **Done when:**
 - [x] **F1:** `lean backtest` dev con SPY completa el warmup y loguea profundidad derivada con driver (W:200→1010, M:200→4221), duración y ready/no-ready; `storage/validation/sma_validation_*.csv` con K=5 filas/serie; regresión interina de SPY verde (2026-06-11: `set_warm_up` adoptado con gate 9/9 vs ruta manual; detalle en [etapa-05b-decisiones-y-pendientes.md](.claude/fase-1-desarrollo-local/etapa-05b-decisiones-y-pendientes.md))
-- [ ] **F2:** AAPL/IBM sembrados; 3 símbolos ready; batch agrupado por resolución (una llamada, no loop por símbolo) verificado en log
-- [ ] **F3:** converter Stooq produce zips válidos; cross-check SPY (converter==zip) dentro de tolerancia; validación manual ≤0,25% (SPY/AAPL/IBM, D/W/M 8/20/200) como fixture + test de regresión; prod con SMA 200 en D/W y warning de exclusión de M:200 verificado
-- [ ] **F4:** smoke-test de la API de datos de Alpaca documentado (conectividad OK o fallo registrado para Etapa 9)
-- [ ] Viabilidad de SMA 200 por marco/proveedor documentada y guardrail `warmup_budget` con warning operativo
+- [x] **F2:** 4 símbolos (SPY/AAPL/IBM/FB) ready en batch; 1 llamada warmup (set_warm_up ADOPTADO); log gate: `36/36 series × ruta manual (13574 filas, 1 batch)`; FB M:200 y W:200 cold (esperado); main.py sin cambios (2026-06-12, T6.1)
+- [ ] **F3 (parcial — T6.3 y T6.4 pendientes):** ✅ converter Stooq (split-only adjusted) produce zips válidos (SPY/AAPL/IBM); ✅ cross-check CSV→zip fidelidad (±1 unidad ×10000) + SMAs coherentes vía SymbolData; ✅ prod `warmup_budget=1100` con D:200/W:200 incluidos y warning de exclusión de M:200 verificado; ⏳ validación manual ≤0,25% usuario en TradingView (T6.3); ⏳ fixture autoritativo + test de regresión (T6.4)
+- [~] **F4:** smoke-test Alpaca diferido a Etapa 9 (ADR-003) — fuera de scope de 5B
+- [x] Viabilidad de SMA 200 por marco/proveedor documentada: M:200 viable en Stooq/zip (budget=4300 dev), excluida en prod (budget=1100 < 4221) con warning automático. Guardrail operativo (2026-06-12, T6.2)
 
 ## Etapa 6 — Features y Rules
 **Estado:** pendiente

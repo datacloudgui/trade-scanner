@@ -9,7 +9,11 @@
       "validate_warmup": true,
       "sma_validation": true
     },
-    "prod": { "top_n": 50, "max_universe": 200 }
+    "prod": {
+      "top_n": 50,
+      "max_universe": 200,
+      "warmup_budget": { "daily": 1100 }
+    }
   },
   "strategies": {
     "swing_eod": {
