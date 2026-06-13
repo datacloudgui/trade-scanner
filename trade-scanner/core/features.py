@@ -32,6 +32,15 @@ BUCKETS: tuple[str, ...] = (
 )
 
 
+# Defaults del código (placeholder D2; calibración real en Etapa 9). Última red
+# del merge cuando ni el global ni el override de estrategia traen una clave.
+DEFAULT_BUCKET_THRESHOLDS: dict[str, float] = {
+    "near": 0.005,
+    "mild": 0.03,
+    "extended": 0.10,
+}
+
+
 @dataclass(frozen=True)
 class PositionResult:
     """Posición del cierre respecto a una SMA: valor usado, distancia relativa y bucket.
@@ -95,3 +104,32 @@ def _bucketize(distance_pct: float, thresholds: dict[str, float]) -> str:
     if distance_pct > -extended:
         return "below_strong"
     return "extended_below"
+
+
+def resolve_bucket_thresholds(
+    full_config: dict, strategy_name: str
+) -> dict[str, float]:
+    """Resuelve los cortes near/mild/extended de una estrategia (D2).
+
+    `full_config` es el strategies.json ya parseado completo (el objeto raíz, tal cual
+    sale de `json.loads`): el global vive en `full_config["bucket_thresholds"]` y el
+    override opcional en `full_config["strategies"][strategy_name]["bucket_thresholds"]`.
+    Merge poco profundo por clave — override-de-estrategia > global > defaults del
+    código — y el dict resuelto siempre trae las 3 claves.
+
+    Valida `0 < near < mild < extended` sobre el resultado: la resolución de config
+    es el único punto de control (un chequeo), no el hot path `_bucketize` (por símbolo×tf).
+    """
+    global_th = full_config.get("bucket_thresholds") or {}
+    strategy_block = full_config.get("strategies", {}).get(strategy_name, {})
+    strategy_th = strategy_block.get("bucket_thresholds") or {}
+    resolved = {
+        key: strategy_th.get(key, global_th.get(key, default))
+        for key, default in DEFAULT_BUCKET_THRESHOLDS.items()
+    }
+    if not 0 < resolved["near"] < resolved["mild"] < resolved["extended"]:
+        raise ValueError(
+            f"bucket_thresholds para '{strategy_name}' deben cumplir "
+            f"0 < near < mild < extended; got {resolved}"
+        )
+    return resolved

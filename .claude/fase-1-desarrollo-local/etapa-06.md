@@ -71,10 +71,10 @@ Tabla (intervalos; `t = thresholds`):
 ### T2 — Carga y resolución de `bucket_thresholds` (config → código)
 
 - **T2.1** — `config/strategies.json`: añadir `bucket_thresholds` global (D2). No tocar timeframes ni universos.
-- **T2.2 (FABLE xhigh)** — `resolve_bucket_thresholds(strategies_config, strategy_name) -> dict` (en `core/features.py` o helper de config): merge poco profundo override-de-estrategia → global → defaults del código. Retorna `{near, mild, extended}` siempre completo.
+- **T2.2 (FABLE xhigh)** — `resolve_bucket_thresholds(full_config, strategy_name) -> dict` en `core/features.py`: merge poco profundo override-de-estrategia → global → defaults del código. Retorna `{near, mild, extended}` siempre completo y valida `0 < near < mild < extended` sobre el resultado (única puerta de control de orden; fuera del hot path `_bucketize`). El primer parámetro es el `strategies.json` parseado **completo** (objeto raíz), nombrado `full_config` para no colisionar con la variable local `strategies_config = full_config["strategies"]` de `main.py:37` — pasar ese sub-dict caería a defaults en silencio (no lanza). **Convención Etapa 7:** resolver una vez por estrategia en `initialize()` desde `full_config` y guardar el dict resuelto; el scan recibe los thresholds ya resueltos y nunca llama esta función.
 - **T2.3** — `scripts/seed_object_store.sh` ya siembra `strategies.json`; verificar que el nuevo campo viaja a `storage/config/strategies.json` (sin cambio de script si el glob ya lo cubre).
 
-**Criterio de aceptación:** test con `MockObjectStore`/dict que verifica las tres rutas — (a) solo global presente → usa global; (b) override de estrategia gana clave-a-clave sobre global; (c) ausencia total de `bucket_thresholds` → defaults `{0.005, 0.03, 0.10}`. El dict resuelto siempre trae las 3 claves.
+**Criterio de aceptación:** test con `MockObjectStore`/dict que verifica las tres rutas — (a) solo global presente → usa global; (b) override de estrategia gana clave-a-clave sobre global; (c) ausencia total de `bucket_thresholds` → defaults `{0.005, 0.03, 0.10}`. El dict resuelto siempre trae las 3 claves. Un set desordenado (`near ≤ 0`, `near ≥ mild` o `mild ≥ extended`), incluido cuando lo provoca el override tras el merge, levanta `ValueError`.
 
 ### T3 — `AboveSMA` (L4)
 
@@ -140,7 +140,7 @@ Tabla (intervalos; `t = thresholds`):
 ## Done when (medible)
 
 - [x] `position_vs_sma` clasifica los 7 buckets y los 6 cortes exactos; test de frontera verde con `thresholds` por defecto y con un segundo set (no-hardcodeo) — `bash scripts/run_tests.sh`. (2026-06-12: 82 passed; T1.1+T1.2+T1.3)
-- [ ] `resolve_bucket_thresholds` verifica las 3 rutas (global / override-estrategia / defaults) con mock.
+- [x] `resolve_bucket_thresholds` verifica las 3 rutas (global / override-estrategia / defaults) con mock. (2026-06-13: 95 passed; T2.2 — incl. validación `0 < near < mild < extended` y always-3-keys)
 - [ ] `AboveSMA` aplica AND sobre todos los `tf` y emite `evidence` `{tf:{period:{value,distance_pct,bucket}}}`; tests pasa/falla + `buckets_allowed` inválido verdes.
 - [ ] `NotExtended` reutiliza `AboveSMA`, corta en `max_pct`, evidencia coherente.
 - [ ] Formateador reproduce **literalmente** las 4 líneas del ejemplo (incl. `final: N candidatos`).

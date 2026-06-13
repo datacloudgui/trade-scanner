@@ -6,6 +6,8 @@ T1.2: position_vs_sma — contrato de fríos (FeatureNotReady), distance_pct y d
 en _bucketize (stubeada con monkeypatch); SymbolData stub del criterio.
 T1.3: _bucketize — 7 buckets + 6 cortes exactos vía position_vs_sma, no-hardcodeo con
 segundo set de thresholds, y ownership de frontera con epsilon + espejo (directo).
+T2.2: resolve_bucket_thresholds — 3 rutas de merge (global / override / defaults),
+always-3-keys y validación de orden 0 < near < mild < extended.
 """
 import dataclasses
 from types import SimpleNamespace
@@ -14,10 +16,12 @@ import pytest
 
 from core.features import (
     BUCKETS,
+    DEFAULT_BUCKET_THRESHOLDS,
     FeatureNotReady,
     PositionResult,
     _bucketize,
     position_vs_sma,
+    resolve_bucket_thresholds,
 )
 
 
@@ -232,3 +236,91 @@ def test_bucketize_mirror_symmetry():
         above = _bucketize(d, THRESHOLDS)
         assert above in BUCKETS
         assert _bucketize(-d, THRESHOLDS) == mirror[above], f"espejo roto en d={d}"
+
+
+# ---------------------------------------------------------------------------
+# T2.2 — resolve_bucket_thresholds: 3 rutas de merge + always-3-keys + validación
+# ---------------------------------------------------------------------------
+
+# Ruta (a): solo global presente (sin override de estrategia) → usa el global tal cual.
+def test_resolve_uses_global_when_no_strategy_override():
+    config = {
+        "bucket_thresholds": {"near": 0.01, "mild": 0.04, "extended": 0.09},
+        "strategies": {"swing_eod": {"universe": "x"}},  # sin bucket_thresholds
+    }
+    assert resolve_bucket_thresholds(config, "swing_eod") == {
+        "near": 0.01, "mild": 0.04, "extended": 0.09,
+    }
+
+
+# Ruta (b): override de estrategia gana CLAVE-A-CLAVE; las ausentes caen al global.
+def test_resolve_strategy_override_wins_key_by_key():
+    config = {
+        "bucket_thresholds": {"near": 0.005, "mild": 0.03, "extended": 0.10},
+        "strategies": {"swing_eod": {"bucket_thresholds": {"extended": 0.08}}},
+    }
+    # solo 'extended' viene del override; near/mild del global (merge poco profundo)
+    assert resolve_bucket_thresholds(config, "swing_eod") == {
+        "near": 0.005, "mild": 0.03, "extended": 0.08,
+    }
+
+
+# Ruta (c): ausencia total de bucket_thresholds → defaults del código.
+def test_resolve_falls_back_to_code_defaults():
+    config = {"strategies": {"swing_eod": {"universe": "x"}}}
+    resolved = resolve_bucket_thresholds(config, "swing_eod")
+    assert resolved == {"near": 0.005, "mild": 0.03, "extended": 0.10}
+    assert resolved == DEFAULT_BUCKET_THRESHOLDS
+    assert resolved is not DEFAULT_BUCKET_THRESHOLDS  # copia, no alias mutable
+
+
+# Estrategia inexistente → sin override → cae al global.
+def test_resolve_unknown_strategy_uses_global():
+    config = {
+        "bucket_thresholds": {"near": 0.01, "mild": 0.04, "extended": 0.09},
+        "strategies": {},
+    }
+    assert resolve_bucket_thresholds(config, "nonexistent") == {
+        "near": 0.01, "mild": 0.04, "extended": 0.09,
+    }
+
+
+# Merge parcial en CUALQUIER ruta → el dict resuelto SIEMPRE trae exactamente las 3 claves.
+@pytest.mark.parametrize(
+    "config",
+    [
+        {},                                                          # nada → defaults
+        {"bucket_thresholds": {"near": 0.001}},                      # global parcial
+        {"strategies": {"s": {"bucket_thresholds": {"mild": 0.04}}}},  # override parcial
+    ],
+)
+def test_resolve_always_returns_three_keys(config):
+    resolved = resolve_bucket_thresholds(config, "s")
+    assert set(resolved) == {"near", "mild", "extended"}
+
+
+# Validación: el dict RESUELTO debe cumplir 0 < near < mild < extended (entrada de config).
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"near": 0.05, "mild": 0.03, "extended": 0.10},   # near > mild
+        {"near": 0.005, "mild": 0.10, "extended": 0.03},  # mild > extended
+        {"near": 0.0, "mild": 0.03, "extended": 0.10},    # near no es > 0
+        {"near": -0.01, "mild": 0.03, "extended": 0.10},  # near negativo
+        {"near": 0.03, "mild": 0.03, "extended": 0.10},   # near == mild (no es estricto)
+    ],
+)
+def test_resolve_rejects_disordered_thresholds(bad):
+    with pytest.raises(ValueError):
+        resolve_bucket_thresholds({"bucket_thresholds": bad}, "swing_eod")
+
+
+# La validación corre sobre el resultado del MERGE: un override válido-en-aislamiento
+# que rompe el orden contra el global resto se rechaza igual.
+def test_resolve_override_can_trigger_validation():
+    config = {
+        "bucket_thresholds": {"near": 0.005, "mild": 0.03, "extended": 0.10},
+        "strategies": {"swing_eod": {"bucket_thresholds": {"near": 0.05}}},  # near > mild tras merge
+    }
+    with pytest.raises(ValueError):
+        resolve_bucket_thresholds(config, "swing_eod")

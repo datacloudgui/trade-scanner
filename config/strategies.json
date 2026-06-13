@@ -1,4 +1,5 @@
 {
+  "bucket_thresholds": { "near": 0.005, "mild": 0.03, "extended": 0.10 },
   "environments": {
     "dev":  {
       "top_n": 2,

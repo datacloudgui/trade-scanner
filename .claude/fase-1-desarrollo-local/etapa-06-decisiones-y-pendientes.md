@@ -137,3 +137,110 @@ Los cortes exactos se testean por dos vías complementarias: (a) vía `position_
 ### Pendiente tras T1.3
 
 Sin pendientes propios de la tarea. **Propuesta para T2.2** (decidir al empezar T2): `resolve_bucket_thresholds` debería validar `0 < near < mild < extended` al resolver la config — hoy nadie lo verifica y unos thresholds desordenados invertirían los intervalos en silencio. Validar una vez en la resolución (entrada de config) y no en `_bucketize` (hot path por símbolo×tf).
+
+---
+
+## T2.1 — `bucket_thresholds` global en `config/strategies.json` (2026-06-13)
+
+### Resultado contra el criterio de aceptación
+
+T2.1 no tiene criterio de aceptación propio (el criterio del bloque T2 cubre T2.2); la tarea es un cambio de config puro verificable directamente:
+
+| Verificación | Estado | Evidencia |
+|---|---|---|
+| Campo `bucket_thresholds` añadido a nivel raíz de `config/strategies.json` | ✅ | Primera línea del objeto raíz: `{"near": 0.005, "mild": 0.03, "extended": 0.10}` |
+| Valores placeholder del spec: `near=0.005`, `mild=0.03`, `extended=0.10` | ✅ | Confirmado por lectura directa del archivo |
+| Sin toque a `timeframes` ni `universes` | ✅ | Solo se añadió la clave raíz nueva |
+| Campo viaja a `storage/config/strategies.json` vía seed existente | ✅ | `seed_object_store.sh` lo propaga con su glob `config/*.json`; verificado con `python3 -c "json.load(...)"` → `{'near': 0.005, 'mild': 0.03, 'extended': 0.1}` |
+| Sin cambio al script `seed_object_store.sh` (glob ya cubría el archivo) | ✅ | T2.3 válido sin modificación adicional |
+
+**Veredicto: ✅ T2.1 cumplido.** T2.3 también verificado de paso (el glob ya cubre el archivo).
+
+### Decisiones tomadas
+
+#### D-T2.1.1 — `bucket_thresholds` como primera clave del objeto raíz
+
+Se coloca antes de `environments` para que sea visible inmediatamente en cualquier editor. Orden elegido por legibilidad, no por restricción técnica (JSON no ordena semánticamente).
+
+#### D-T2.1.2 — Sin override por estrategia en esta tarea
+
+El spec D2 permite override por estrategia (merge poco profundo), pero en V1 ninguna estrategia lo usa. Los overrides se añadirán cuando una estrategia necesite cortes distintos. `resolve_bucket_thresholds` (T2.2) implementará el merge de todas formas.
+
+### Pendiente tras T2.1
+
+- **T2.2** — `resolve_bucket_thresholds(strategies_config, strategy_name) -> dict` (3 rutas: global / override-estrategia / defaults). Incorporar la validación `0 < near < mild < extended` propuesta en T1.3.
+- **T2.3** — Ya verificado: el glob de `seed_object_store.sh` cubre el archivo sin cambios.
+
+---
+
+## T2.2 — `resolve_bucket_thresholds` (merge global/override/defaults) (2026-06-13)
+
+### Resultado contra el criterio de aceptación
+
+Cierra el criterio del bloque T2 (T2.1 sembró el campo; T2.3 ya verificado en sesión previa):
+
+| Criterio T2 | Estado | Evidencia |
+|---|---|---|
+| `resolve_bucket_thresholds(strategies_config, strategy_name) -> dict` en `core/features.py` | ✅ | Función pura junto a `_bucketize`; type hints completos |
+| Merge poco profundo: override-estrategia > global > defaults del código | ✅ | Comprehension per-clave `strategy_th.get(k, global_th.get(k, default))` sobre `DEFAULT_BUCKET_THRESHOLDS.items()` |
+| Ruta (a) solo global presente → usa global | ✅ | `test_resolve_uses_global_when_no_strategy_override` |
+| Ruta (b) override gana clave-a-clave sobre global | ✅ | `test_resolve_strategy_override_wins_key_by_key` (override `{extended:0.08}`; near/mild caen al global) |
+| Ruta (c) ausencia total → defaults `{0.005, 0.03, 0.10}` | ✅ | `test_resolve_falls_back_to_code_defaults` (== defaults y NO alias del constante module-level) |
+| El dict resuelto siempre trae las 3 claves | ✅ | `test_resolve_always_returns_three_keys` (3 casos: vacío, global parcial, override parcial) |
+| `run_tests.sh` verde | ✅ | **95 passed** (82 previos + 13 nuevos) |
+| *(extra)* Validación `0 < near < mild < extended` sobre el resultado | ✅ | `test_resolve_rejects_disordered_thresholds` (5 casos) + `test_resolve_override_can_trigger_validation` (override rompe el orden tras merge) |
+| *(extra)* Estrategia inexistente → cae al global | ✅ | `test_resolve_unknown_strategy_uses_global` |
+
+**Veredicto: ✅ T2.2 cumplido → bloque T2 completo** (T2.1 ✅ + T2.2 ✅ + T2.3 ✅). Segundo "Done when" de la etapa marcado `[x]`.
+
+### Decisiones tomadas
+
+#### D-T2.2.1 — el parámetro es el `strategies.json` parseado **completo** (raíz), nombrado `full_config`
+
+El global `bucket_thresholds` vive en la **raíz** (T2.1/D2) y el override dentro del bloque de estrategia; para ver ambos, la función recibe el objeto raíz (`global` ← `full_config["bucket_thresholds"]`, `override` ← `full_config["strategies"][name]["bucket_thresholds"]`).
+
+El spec nombró el parámetro `strategies_config`, pero ese nombre colisiona con la variable local de `main.py:37` (`strategies_config = full_config["strategies"]`, que es el **sub-dict**). En Etapa 7 la llamada refleja `resolve_bucket_thresholds(strategies_config, name)` pasaría el sub-dict → **no lanza error, cae a defaults en silencio** para todas las estrategias (anula la calibración de Etapa 9 sin avisar; los tests unitarios no lo atrapan porque el bug vive en el call site). **Decisión (2026-06-13, revisión post-análisis):** se renombra el parámetro a **`full_config`** para que coincida con la variable de `main.py:31` y pasar el sub-dict se lea como error evidente. Conserva la firma del spec (`(config, strategy_name)`), el `strategy_name` en el mensaje de validación y el schema en un solo lugar. Costo ~0: los tests llaman posicional → sin cambios (95 passed antes y después del rename). Opciones descartadas: dejar el nombre ambiguo (riesgo latente) y firma de dos dicts `(global, override)` (pierde `strategy_name`, reescribe los 7 tests).
+
+**Convención para Etapa 7 (acordada, anotada aquí):** la config se carga una sola vez en `initialize()` y los thresholds no cambian por scan. Resolver los thresholds **una vez por estrategia en `initialize()` desde `full_config`** y guardar el `{near, mild, extended}` resuelto en el StrategyConfig/pipeline. El hot path del scan recibe el dict ya resuelto — `position_vs_sma(sd, tf, period, thresholds)` — y **nunca** llama `resolve_bucket_thresholds`. Así la única llamada queda confinada al punto donde `full_config` está en scope, donde pasar el dict correcto es natural.
+
+#### D-T2.2.2 — Validación `0 < near < mild < extended` en la resolución (no en `_bucketize`)
+
+Se incorpora la propuesta dejada por T1.3. Se valida el dict **resuelto** (post-merge), una sola vez en la entrada de config, con `ValueError`. Razón: `_bucketize` corre por símbolo×tf (hot path) y unos cortes desordenados invertirían los intervalos en silencio; el merge es el único punto donde un override puede romper el orden aunque el global sea válido (`test_resolve_override_can_trigger_validation` lo fija). Es estricto (`<`, no `<=`): cortes iguales colapsarían un bucket. No afecta a ninguna config real (default y `config/strategies.json` cumplen `0 < 0.005 < 0.03 < 0.10`).
+
+#### D-T2.2.3 — `DEFAULT_BUCKET_THRESHOLDS` como constante module-level + copia en cada resolución
+
+Los defaults viven en una constante junto a `BUCKETS` (fuente única; la comprehension itera sus `.items()` para derivar las 3 claves canónicas). `resolve_bucket_thresholds` construye un dict nuevo siempre — nunca retorna el alias mutable del constante (`test_resolve_falls_back_to_code_defaults` verifica `is not`), evitando que un consumidor mute los defaults globales por accidente.
+
+#### D-T2.2.4 — Test con dict plano, sin `MockObjectStore`
+
+El criterio admite "MockObjectStore/dict". La función opera sobre el config **ya parseado** (`main.py` hace `json.loads` antes), así que su entrada natural es un `dict` — `MockObjectStore` (que devuelve CSV/strings crudos) no aporta aquí. Los tests pasan dicts literales, fieles a la frontera real de la función.
+
+### Pendiente tras T2.2
+
+Sin pendientes propios. **Bloque T2 cerrado.** Siguiente: **T3** (`AboveSMA` + `RuleResult` en `core/rules.py`) — usará `BUCKETS` (fail-fast de `buckets_allowed`) y `position_vs_sma`. Nota: la integración de `resolve_bucket_thresholds` en `main.py` (con `full_config`, ver D-T2.2.1) es de Etapa 7, no de esta etapa.
+
+---
+
+## T2.3 — `bucket_thresholds` viaja al ObjectStore local (verificación) (2026-06-13)
+
+### Resultado contra el criterio de aceptación
+
+T2.3 es **verificación pura** (sin implementación): confirmar que el campo añadido en T2.1 llega a `storage/config/strategies.json` vía el seed, sin tocar el script si el glob ya lo cubre. Re-verificado **fresco** en esta sesión (no asumido del run de T2.1):
+
+| Criterio T2.3 | Estado | Evidencia |
+|---|---|---|
+| `bucket_thresholds` presente en `storage/config/strategies.json` tras el seed | ✅ | `json.load(storage/...)` → `{'near': 0.005, 'mild': 0.03, 'extended': 0.1}` |
+| Sin cambio al script (el glob `config/*.json` ya lo cubre) | ✅ | Línea del seed `for f in "$SRC_CONFIG"/*.json; do cp ...` — copia el archivo entero, no clave a clave; `strategies.json` entra por el glob |
+| Identidad round-trip fuente → destino | ✅ | `diff config/strategies.json storage/config/strategies.json` vacío (el seed es `cp`) |
+| Idempotente | ✅ | Re-seed sin error; `cp` sobrescribe |
+| *(bonus end-to-end)* `resolve_bucket_thresholds` resuelve desde el artefacto sembrado | ✅ | Host (venv, sin CLR): las 4 estrategias de la config de referencia → `{0.005, 0.03, 0.10}`; `swing_eod` == global sembrado == `DEFAULT_BUCKET_THRESHOLDS`. Cierra la cadena T2.1+T2.2+T2.3 contra el archivo real, no contra un dict de test |
+
+**Veredicto: ✅ T2.3 cumplido. Bloque T2 completo al 100% (T2.1 ✅ + T2.2 ✅ + T2.3 ✅).**
+
+### ¿Era necesaria T2.3 como tarea aparte?
+
+Como *acción*, mínima: ningún cambio de código ni de script (el glob ya cubría el archivo desde Etapa 2). Como *checkpoint*, sí aporta: garantiza explícitamente que el seam config→ObjectStore no se rompió al añadir la clave (un campo nuevo podría haber quedado fuera si el seed copiara claves selectivamente — no es el caso, copia el archivo entero). El bonus end-to-end es lo que de verdad agrega valor: prueba que `resolve_bucket_thresholds` lee el artefacto real, no solo dicts sintéticos. No hay checkbox propio de T2.3 en el "Done when" de etapa-06.md (T2 se cierra con la línea de `resolve_bucket_thresholds`, ya `[x]`).
+
+### Pendiente tras T2.3
+
+Sin pendientes. **Bloque T2 cerrado al 100%.** Siguiente: **T3** (`AboveSMA` + `RuleResult`).

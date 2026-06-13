@@ -300,7 +300,7 @@ Variante losers: top N negativos, reglas propias (placeholder, sin reglas en V1)
 - Tests por feature y rule con SymbolData sintético (fronteras exactas de buckets, AND, merge de thresholds, log literal).
 **Done when:**
 - [x] `position_vs_sma` clasifica los 7 buckets y los 6 cortes exactos; no-hardcodeo verificado con dos sets de thresholds (2026-06-12, T1.3: 82 passed)
-- [ ] `resolve_bucket_thresholds` verifica global / override-estrategia / defaults con mock
+- [x] `resolve_bucket_thresholds` verifica global / override-estrategia / defaults con mock (2026-06-13, T2.2: 95 passed; param `full_config`, incl. validación de orden)
 - [ ] `AboveSMA` (AND sobre tfs) y `NotExtended` (corte en `max_pct`) con evidencia `{tf:{period:{value,distance_pct,bucket}}}`; tests verdes
 - [ ] Formateador reproduce literalmente las 4 líneas del log de ejemplo
 - [ ] Ninguna feature/rule importa `QCAlgorithm`/`self.history` (solo leen SymbolData); `ScanResult` y §5 reconciliados
