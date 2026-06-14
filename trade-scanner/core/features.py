@@ -4,6 +4,7 @@ Negocio puro, importable sin CLR (patrón universe): cero AlgorithmImports.
 L3 solo lee estado ya calculado por SymbolData (L2) — nunca pide datos ni
 calcula indicadores.
 """
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -104,6 +105,53 @@ def _bucketize(distance_pct: float, thresholds: dict[str, float]) -> str:
     if distance_pct > -extended:
         return "below_strong"
     return "extended_below"
+
+
+def build_position_snapshot(
+    sd: "SymbolData",
+    series: Iterable[tuple[str, int]],
+    thresholds: dict[str, float],
+) -> dict[str, dict[int, PositionResult]]:
+    """Posición precio↔SMA de cada `(tf, period)` en `series`, una vez por símbolo·scan.
+
+    Snapshot único (ADR-005 / D6B.1): dict anidado plano `{tf: {period: PositionResult}}`,
+    misma forma que la evidencia y sin clase envolvente. Reutiliza `position_vs_sma` como
+    primitivo per-serie — hereda su contrato de fríos, la normalización `float()` L2→L3 y
+    `_bucketize`.
+
+    `series` = solo lo que referencian las rules de la estrategia (D6B.2), NO toda SMA
+    declarada en `sd`: ni computa ni excluye por SMAs que ninguna rule mira. El builder no
+    deduplica — el dedup es del call site (Etapa 7 pasa la unión como set).
+
+    Frío (D6B.3): la primera serie que lance `FeatureNotReady` se propaga y detiene la
+    construcción (no se silencia); la exclusión del scan + log es de Etapa 7.
+    """
+    snapshot: dict[str, dict[int, PositionResult]] = {}
+    for tf, period in series:
+        snapshot.setdefault(tf, {})[period] = position_vs_sma(sd, tf, period, thresholds)
+    return snapshot
+
+
+def snapshot_evidence(
+    snapshot: dict[str, dict[int, PositionResult]],
+    series: Iterable[tuple[str, int]],
+) -> dict:
+    """Proyecta el subconjunto `series` del snapshot al esquema de evidencia (D6B.7).
+
+    `{tf:{period:{value,distance_pct,bucket}}}` — descarta `side`. Pura lectura del
+    snapshot: sin `SymbolData`, sin recompute. Única fuente de evidencia de aquí en
+    adelante (`RuleResult.evidence` sobre las series de la rule; `ScanResult.sma_evidence`
+    sobre la unión). Contrato: `series ⊆ snapshot` (un `(tf,period)` ausente → `KeyError`).
+    """
+    evidence: dict = {}
+    for tf, period in series:
+        pos = snapshot[tf][period]
+        evidence.setdefault(tf, {})[period] = {
+            "value": pos.value,
+            "distance_pct": pos.distance_pct,
+            "bucket": pos.bucket,
+        }
+    return evidence
 
 
 def resolve_bucket_thresholds(

@@ -20,8 +20,10 @@ from core.features import (
     FeatureNotReady,
     PositionResult,
     _bucketize,
+    build_position_snapshot,
     position_vs_sma,
     resolve_bucket_thresholds,
+    snapshot_evidence,
 )
 
 
@@ -324,3 +326,197 @@ def test_resolve_override_can_trigger_validation():
     }
     with pytest.raises(ValueError):
         resolve_bucket_thresholds(config, "swing_eod")
+
+
+# ---------------------------------------------------------------------------
+# T1.1 (Etapa 6B) — build_position_snapshot: snapshot único {tf:{period:PositionResult}}
+# computado una vez por serie, propaga frío y solo cubre las series referenciadas.
+# ---------------------------------------------------------------------------
+
+class MultiSeriesStub:
+    """SymbolData sintético multi-(tf,period) para el builder del snapshot.
+
+    `close(tf)` depende solo del tf (como la API real); `sma`/`is_ready` son
+    per-(tf,period). Registra cada lectura para verificar que el builder computa
+    una serie a lo sumo una vez y que NO toca series fuera de las pedidas.
+    """
+
+    def __init__(self, closes: dict, smas: dict, cold=frozenset()):
+        self.symbol = "STUB"
+        self._closes = closes          # {tf: close_value}
+        self._smas = smas              # {(tf, period): sma_value}
+        self._cold = set(cold)         # {(tf, period)} not ready
+        self.calls: list[tuple] = []
+
+    def is_ready(self, tf, period) -> bool:
+        self.calls.append(("is_ready", tf, period))
+        return (tf, period) not in self._cold
+
+    def sma(self, tf, period):
+        self.calls.append(("sma", tf, period))
+        return SimpleNamespace(current=SimpleNamespace(value=self._smas[(tf, period)]))
+
+    def close(self, tf):
+        self.calls.append(("close", tf))
+        return self._closes[tf]
+
+
+# (a) forma exacta {tf:{period:PositionResult}} con value/distance_pct/bucket esperados
+def test_snapshot_shape_and_values():
+    sd = MultiSeriesStub(
+        closes={"W": 105.0, "M": 102.0, "D": 101.0},
+        smas={("W", 20): 100.0, ("M", 20): 100.0, ("D", 8): 100.0},
+    )
+    snapshot = build_position_snapshot(sd, [("W", 20), ("M", 20), ("D", 8)], THRESHOLDS)
+
+    assert set(snapshot) == {"W", "M", "D"}
+    assert set(snapshot["W"]) == {20} and set(snapshot["M"]) == {20} and set(snapshot["D"]) == {8}
+    expected = {
+        ("W", 20): (100.0, 0.05, "above_strong"),
+        ("M", 20): (100.0, 0.02, "above_mild"),
+        ("D", 8): (100.0, 0.01, "above_mild"),
+    }
+    for (tf, period), (value, dist, bucket) in expected.items():
+        pos = snapshot[tf][period]
+        assert isinstance(pos, PositionResult)
+        assert pos.value == value
+        assert pos.distance_pct == pytest.approx(dist, abs=1e-9)
+        assert pos.bucket == bucket
+
+
+# (a) position_vs_sma se invoca UNA vez por serie, con args correctos y en orden
+def test_each_series_computed_exactly_once(monkeypatch):
+    calls: list[tuple] = []
+
+    def spy(sd, tf, period, thresholds):
+        calls.append((sd, tf, period, thresholds))
+        return f"pos:{tf}:{period}"  # sentinela: prueba el agrupamiento sin recomputar
+
+    monkeypatch.setattr("core.features.position_vs_sma", spy)
+    sd = object()
+    series = [("W", 20), ("M", 20), ("D", 8)]
+    snapshot = build_position_snapshot(sd, series, THRESHOLDS)
+
+    assert snapshot == {"W": {20: "pos:W:20"}, "M": {20: "pos:M:20"}, "D": {8: "pos:D:8"}}
+    assert calls == [(sd, "W", 20, THRESHOLDS), (sd, "M", 20, THRESHOLDS), (sd, "D", 8, THRESHOLDS)]
+
+
+# (a) dos periods sobre el MISMO tf anidan bajo la misma clave tf (dict anidado plano)
+def test_multiple_periods_same_tf_nest_under_one_tf_key():
+    sd = MultiSeriesStub(
+        closes={"D": 101.0},
+        smas={("D", 8): 100.0, ("D", 20): 100.0},
+    )
+    snapshot = build_position_snapshot(sd, [("D", 8), ("D", 20)], THRESHOLDS)
+    assert set(snapshot) == {"D"}
+    assert set(snapshot["D"]) == {8, 20}
+
+
+# (b) serie fría en `series` → FeatureNotReady que DETIENE la construcción (símbolo+serie)
+def test_cold_series_halts_and_propagates():
+    sd = MultiSeriesStub(
+        closes={"W": 105.0, "M": 102.0},
+        smas={("W", 20): 100.0, ("M", 20): 100.0},
+        cold={("W", 20)},
+    )
+    with pytest.raises(FeatureNotReady, match=r"STUB.*W:20"):
+        build_position_snapshot(sd, [("W", 20), ("M", 20)], THRESHOLDS)
+    # detiene: la serie posterior M:20 nunca se consultó (no se silencia ni continúa)
+    assert ("is_ready", "M", 20) not in sd.calls
+
+
+# (c) serie declarada-pero-no-referenciada (⊄ series): ni se computa ni excluye el símbolo
+def test_unreferenced_declared_series_not_computed_nor_excluding():
+    # ("M",200) existe en el stub (declarada) y está FRÍA: si el builder la computara,
+    # levantaría FeatureNotReady. Como NO está en `series`, ni se mira ni rompe el snapshot.
+    sd = MultiSeriesStub(
+        closes={"W": 105.0, "M": 102.0},
+        smas={("W", 20): 100.0, ("M", 20): 100.0, ("M", 200): 0.0},
+        cold={("M", 200)},
+    )
+    snapshot = build_position_snapshot(sd, [("W", 20), ("M", 20)], THRESHOLDS)  # no levanta
+
+    assert set(snapshot["M"]) == {20}                 # M:200 no aparece en el snapshot
+    assert ("is_ready", "M", 200) not in sd.calls     # ni siquiera se consultó su frialdad
+
+
+# ---------------------------------------------------------------------------
+# T1.2 (Etapa 6B) — snapshot_evidence: proyección pura {tf:{period:{value,distance_pct,bucket}}}
+# sobre un subconjunto de series, sin `side` y sin recompute.
+# ---------------------------------------------------------------------------
+
+def _assert_evidence(evidence: dict, expected: dict) -> None:
+    """Forma exacta `{tf:{period:{value,distance_pct,bucket}}}` (sin `side`); claves de
+    cada nivel idénticas; value/bucket exactos; distance_pct con tolerancia 1e-9.
+
+    expected: `{tf: {period: (value, distance_pct, bucket)}}`.
+    """
+    assert set(evidence) == set(expected)
+    for tf, periods in expected.items():
+        assert set(evidence[tf]) == set(periods)
+        for period, (value, dist, bucket) in periods.items():
+            entry = evidence[tf][period]
+            assert set(entry) == {"value", "distance_pct", "bucket"}
+            assert entry["value"] == value
+            assert entry["distance_pct"] == pytest.approx(dist, abs=1e-9)
+            assert entry["bucket"] == bucket
+
+
+def _sample_snapshot() -> dict:
+    """Snapshot armado a mano (sin stub ni builder): aísla la proyección pura."""
+    return {
+        "W": {20: PositionResult(value=100.0, distance_pct=0.05, bucket="above_strong")},
+        "M": {20: PositionResult(value=200.0, distance_pct=-0.02, bucket="below_mild")},
+        "D": {
+            8: PositionResult(value=50.0, distance_pct=0.01, bucket="above_mild"),
+            20: PositionResult(value=48.0, distance_pct=0.04, bucket="above_strong"),
+        },
+    }
+
+
+# (d) esquema exacto para un SUBCONJUNTO: M (no pedida) y D:20 (no pedida) quedan fuera
+def test_snapshot_evidence_projects_exact_schema_for_subset():
+    evidence = snapshot_evidence(_sample_snapshot(), [("W", 20), ("D", 8)])
+    _assert_evidence(
+        evidence,
+        {
+            "W": {20: (100.0, 0.05, "above_strong")},
+            "D": {8: (50.0, 0.01, "above_mild")},
+        },
+    )
+
+
+# (d) descarta `side` aunque el PositionResult de origen lo tenga (below → side="below")
+def test_snapshot_evidence_drops_side():
+    snap = {"M": {20: PositionResult(value=200.0, distance_pct=-0.02, bucket="below_mild")}}
+    assert snap["M"][20].side == "below"  # el origen sí trae side...
+    entry = snapshot_evidence(snap, [("M", 20)])["M"][20]
+    assert "side" not in entry            # ...pero la evidencia no
+    assert entry == {"value": 200.0, "distance_pct": -0.02, "bucket": "below_mild"}
+
+
+# (d) dos `period` del mismo `tf` anidan bajo una sola clave `tf`
+def test_snapshot_evidence_multiple_periods_same_tf():
+    evidence = snapshot_evidence(_sample_snapshot(), [("D", 8), ("D", 20)])
+    _assert_evidence(
+        evidence,
+        {"D": {8: (50.0, 0.01, "above_mild"), 20: (48.0, 0.04, "above_strong")}},
+    )
+
+
+# (d) proyección de un snapshot REAL (vía builder): forma idéntica al dict inline que hoy
+# arma AboveSMA.evaluate (rules.py:69-75) y que T3 reemplaza por esta función
+def test_snapshot_evidence_reproduces_builder_snapshot_schema():
+    sd = MultiSeriesStub(
+        closes={"W": 105.0, "M": 102.0},
+        smas={("W", 20): 100.0, ("M", 20): 100.0},
+    )
+    snap = build_position_snapshot(sd, [("W", 20), ("M", 20)], THRESHOLDS)
+    evidence = snapshot_evidence(snap, [("W", 20), ("M", 20)])
+    _assert_evidence(
+        evidence,
+        {
+            "W": {20: (100.0, 0.05, "above_strong")},
+            "M": {20: (100.0, 0.02, "above_mild")},
+        },
+    )

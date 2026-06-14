@@ -1,6 +1,6 @@
 # Etapa 6B — Snapshot único de posición y reglas como filtros puros
 
-**Estado:** pendiente
+**Estado:** en progreso
 **Depende de:** Etapa 6 (T1+T2+T3: `PositionResult`, `position_vs_sma`, `_bucketize`, `FeatureNotReady`, `resolve_bucket_thresholds`, `BUCKETS`, `RuleResult`, `AboveSMA`).
 **Autoridad de diseño:** [ADR-005](../decisions/ADR-005-snapshot-unico-y-reglas-como-filtros.md) (aprobado 2026-06-14). **Supersede:** D4 de [etapa-06.md](etapa-06.md) (parcial — ver §"Qué cambia respecto a Etapa 6").
 **Estimado:** 3–5 h (L3 + L4, sin pipeline).
@@ -51,8 +51,8 @@ Redundante con `bucket_thresholds.extended` (hoy ambos `0.10` en las 4 estrategi
 
 ### T1 — `build_position_snapshot` + `snapshot_evidence` (L3, `core/features.py`)
 
-- **T1.1 (FABLE xhigh)** — `build_position_snapshot(sd, series: Iterable[tuple[str,int]], thresholds: dict) -> dict[str, dict[int, PositionResult]]`: itera `position_vs_sma(sd, tf, period, thresholds)` sobre cada `(tf, period)` en `series`, una sola vez, y los agrupa en el dict anidado. **Frío:** la primera serie que lance `FeatureNotReady` se propaga (no se captura) — el manejo (exclusión + log) es de Etapa 7. No cubre series fuera de `series` aunque estén declaradas en `sd` (D6B.2).
-- **T1.2** — `snapshot_evidence(snapshot, series) -> dict`: proyecta el subconjunto `series` del snapshot al esquema `{tf:{period:{value,distance_pct,bucket}}}` (sin `side`). Pura lectura del snapshot, sin `sd` ni recompute. **Es la ÚNICA fuente de evidencia** de aquí en adelante: T3 elimina la construcción inline del dict de evidencia que hoy vive en `AboveSMA.evaluate` (`rules.py:69-75`) y la reemplaza por una llamada a esta función.
+- **T1.1 (FABLE xhigh)** ✅ *(implementada 2026-06-14 — ver `etapa-06b-t1-1-decisiones-y-pendientes.md`)* — `build_position_snapshot(sd, series: Iterable[tuple[str,int]], thresholds: dict) -> dict[str, dict[int, PositionResult]]`: itera `position_vs_sma(sd, tf, period, thresholds)` sobre cada `(tf, period)` en `series`, una sola vez, y los agrupa en el dict anidado. **Frío:** la primera serie que lance `FeatureNotReady` se propaga (no se captura) — el manejo (exclusión + log) es de Etapa 7. No cubre series fuera de `series` aunque estén declaradas en `sd` (D6B.2).
+- **T1.2** ✅ *(implementada 2026-06-14 — ver `etapa-06b-t1-2-decisiones-y-pendientes.md`)* — `snapshot_evidence(snapshot, series) -> dict`: proyecta el subconjunto `series` del snapshot al esquema `{tf:{period:{value,distance_pct,bucket}}}` (sin `side`). Pura lectura del snapshot, sin `sd` ni recompute. **Es la ÚNICA fuente de evidencia** de aquí en adelante: T3 elimina la construcción inline del dict de evidencia que hoy vive en `AboveSMA.evaluate` (`rules.py:69-75`) y la reemplaza por una llamada a esta función.
 
 **Criterio de aceptación:**
 - (a) Snapshot de un stub multi-`(tf,period)` tiene la forma exacta `{tf:{period:PositionResult}}` con los `value/distance_pct/bucket` esperados; `position_vs_sma` se invoca **una vez por serie** con los args correctos (spy/monkeypatch que cuenta llamadas), nunca dos veces para la misma serie.
@@ -172,7 +172,7 @@ Redundante con `bucket_thresholds.extended` (hoy ambos `0.10` en las 4 estrategi
 
 ## Done when (medible)
 
-- [ ] `build_position_snapshot` computa cada serie **una sola vez**, propaga `FeatureNotReady` en la primera serie fría, y **no** computa ni excluye por series declaradas-pero-no-referenciadas; `snapshot_evidence` proyecta el esquema exacto. Tests verdes — `bash scripts/run_tests.sh`.
+- [x] `build_position_snapshot` computa cada serie **una sola vez**, propaga `FeatureNotReady` en la primera serie fría, y **no** computa ni excluye por series declaradas-pero-no-referenciadas; `snapshot_evidence` proyecta el esquema exacto. Tests verdes — `bash scripts/run_tests.sh`. *(T1.1+T1.2 — 112 passed, 2026-06-14)*
 - [ ] `mirror_buckets` verifica identidad (above), `near` autoespejo, involución, above→below, resultado ⊆ `BUCKETS`, `side` inválido → `ValueError`. Tests verdes.
 - [ ] `SMAPositionRule` con `evaluate(snapshot)`: los 8 tests de T3 migrados + casos short (mirror) verdes; evidencia completa aun al fallar; `buckets_allowed` inválido revienta en construcción; `evaluate` no toca `FeatureNotReady`.
 - [ ] `NotExtended` (sin `max_pct`) excluye el bucket favorable-extremo en ambos lados; un segundo `bucket_thresholds.extended` mueve el corte; evidencia coherente. Tests verdes.
