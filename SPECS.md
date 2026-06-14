@@ -1,6 +1,6 @@
 # SPECS — Screener de Acciones sobre LEAN
 
-**Versión:** 0.1 (V1) · **Fecha:** 2026-06-11 · **Estado:** en desarrollo — Etapas 1–4 completadas
+**Versión:** 0.1 (V1) · **Fecha:** 2026-06-14 · **Estado:** en desarrollo — Etapas 1–5A completadas; 5B/6 en progreso (rules rediseñadas en 6B, ADR-005)
 
 ---
 
@@ -82,7 +82,7 @@
 | `UniverseSpec` | Lista de símbolos de una estrategia, cargada de CSV + filtro declarativo sobre columnas normalizadas (ej. `"avg_vol_5d > 1e6 and price > 5"`). Expone `refresh_universe()` (no-op en V1, punto de extensión). | CSV leído vía ObjectStore. Footer strip (`^[A-Z]{1,5}$`). Alias normalizados (`COLUMN_ALIASES`). Filtro vía `df.query()`. Tope duro 200 post-filtro. Sin imports de `AlgorithmImports` (testeable con mock). Claves: `universes/swing_advances.csv`, `universes/swing_declines.csv`. |
 | `SymbolData` | Estado técnico de un símbolo: consolidators D/W/M, indicadores registrados, barra parcial del día. | Patrón idiomático LEAN. SMAs vía `register_indicator` sobre cada consolidator. Warmup en construcción. |
 | `Feature` | Cómputo reutilizable y nombrado sobre `SymbolData`. Ej.: `position_vs_sma(n, timeframe)`, `extension_pct(n)`, `is_pullback()`, `day_change_pct()`. | Funciones/propiedades puras de lectura. Compartidas por todas las estrategias. |
-| `Rule` | Predicado parametrizado que combina features y devuelve pasa/no-pasa + evidencia. Ej.: `AboveSMA(20, ["D","W","M"])`, `NotExtended(sma=8, max_pct=0.10)`. | Componibles con AND/NOT. Parámetros desde config, no hardcoded. |
+| `Rule` | Filtro puro sobre el snapshot de posición precio↔SMA (no recalcula): pasa/no-pasa + evidencia. Ej.: `AboveSMA(20, ["D","W","M"])`, `NotExtended(8, "D")`. Largos/cortos por mirror del set de buckets desde `direction` (sin duplicar reglas). | `evaluate(snapshot)` — sin `sd` ni thresholds. `buckets_allowed` desde config (validado en construcción). `NotExtended` excluye el bucket extremo; el corte es el `bucket_thresholds.extended` único de la estrategia, no un umbral por-regla (ADR-005). |
 | `ScanPipeline` | Una estrategia: `UniverseSpec` + lista de `Rules` + `ScheduleSpec`. Ejecuta el scan y produce `ScanResult`. | V1: `swing_eod`, `market_close`. |
 | `ScheduleSpec` | Cuándo corre cada pipeline. Ej.: `swing_eod` → tras el cierre; `market_close` → 30 min antes del cierre. | Implementado con `self.schedule.on(date_rules, time_rules)` sobre el calendario del mercado. |
 | `ScanResult` | Watchlist: lista de candidatos con evidencia por regla (valores de SMAs, % extensión, % cambio, timestamp `as_of`, flag `partial_bar`). | Serializable a CSV/JSON. |
@@ -116,10 +116,11 @@
 
 **`swing_eod`** — corre tras el cierre:
 1. Universo: CSV swing (≤200), filtro simple de liquidez/precio del propio CSV.
-2. Ranking interno: top N por `day_change_pct` (gainers; losers como variante con reglas propias a definir).
-3. Regla: precio > SMA20 en D, W y M.
-4. Regla: NO extendida — `(close − SMA8_D) / SMA8_D ≤ umbral` (umbral parametrizado, default propuesto 10%, **a calibrar**).
-5. Salida: watchlist con evidencia.
+2. Ranking interno: top N por `day_change_pct` (gainers; losers vía la variante `*_short` con `direction: short`).
+3. Snapshot único: posición precio↔SMA(8/20) en D/W/M, calculada **una vez** por símbolo·scan y clasificada en 7 buckets con los `bucket_thresholds` de la estrategia.
+4. Regla: precio sobre SMA20 en D, W y M (`AboveSMA(20, [D,W,M])` — filtro de buckets `above_*`; para shorts, mirror a `below_*`).
+5. Regla: NO extendida (`NotExtended(8, D)` — excluye el bucket `extended_above`, cuyo corte es `bucket_thresholds.extended`, default 10% **a calibrar**; sin umbral por-regla).
+6. Salida: watchlist con evidencia (proyección del snapshot).
 
 **`market_close`** — corre 15:30 ET (mismas reglas que swing_eod):
 - Usa la barra parcial del día (working bar) como precio/OHLC actual.
@@ -177,7 +178,7 @@ El V1 está terminado cuando, en un mismo proyecto LEAN:
 
 **Pendientes de definición (bloquean calibración, no el desarrollo):**
 - Fuente del CSV de universo "best market movers" (≤200).
-- Umbral de "extendida" (% sobre SMA8 vs alternativa con ATR).
+- Calibración de `bucket_thresholds` (`near/mild/extended`); el corte "extendida" es `extended` (% sobre la SMA), un solo set por estrategia (ADR-005). Alternativa con ATR a futuro.
 - Definición operativa de *pullback* (feature prevista, sin regla en V1 hasta definirla).
 - Reglas específicas para *top losers*.
 - Plataforma de referencia para validar SMAs W/M (convención de semana de `Calendar.WEEKLY`: lunes→domingo, cierre efectivo viernes).

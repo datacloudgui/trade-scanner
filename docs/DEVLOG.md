@@ -47,7 +47,25 @@ Horas: 10h
 - Día intensivo (4 sesiones con 100% de usage en ventana de 5 horas), en pro de aprovechar antes del reset semanal.
 
 ### Próximo paso
-- 
+- Implementacion etapa 6
+
+---
+
+## 2026-06-13
+
+Horas: 3h
+
+### Trabajo realizado
+- Implementacion T1 y T2 de Etapa 6
+- Se evidencia posible mejora, para flexibilidad y eficiencia de cara a daytrading.
+- Se redisena la aplicacion de reglas
+- Nueva sub etapa 6B, refinada y validada para no dejar codigo muerto.
+
+### Comentarios
+- TODO definicion de archivo de estrategias.
+
+### Próximo paso
+- Implementacion de etapa 6B
 
 ---
 

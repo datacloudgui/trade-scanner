@@ -77,14 +77,17 @@ Cada estrategia declara qué necesita; el orquestador construye lo mínimo. La c
 ```json
 // config/strategies.json  (sembrado a ObjectStore; versionado en config/ del repo)
 {
+  "bucket_thresholds": { "near": 0.005, "mild": 0.03, "extended": 0.10 },
   "strategies": {
-    "swing_eod":    { "universe": "swing", "timeframes": { "D": [8, 20], "W": [20], "M": [20] },
-                      "schedule": "after_close", "top_n": 50, "max_extension_pct": 0.10 },
-    "market_close": { "universe": "swing", "timeframes": { "D": [8, 20], "W": [20], "M": [20] },
-                      "schedule": "before_close_30m", "top_n": 50, "max_extension_pct": 0.10 }
+    "swing_eod":    { "universe": "swing", "direction": "long", "timeframes": { "D": [8, 20], "W": [20], "M": [20] },
+                      "schedule": "after_close", "top_n": 50 },
+    "market_close": { "universe": "swing", "direction": "long", "timeframes": { "D": [8, 20], "W": [20], "M": [20] },
+                      "schedule": "before_close_30m", "top_n": 50 }
   }
 }
 ```
+
+- **Umbrales de posición (Etapa 6/6B):** los cortes `near/mild/extended` viven en `bucket_thresholds` (global + override opcional por estrategia), **un solo set por estrategia** compartido por todas sus rules. El antiguo `max_extension_pct` por estrategia quedó **retirado** (ADR-005): "no extendido" = excluir el bucket extremo, cuyo corte es el `extended` único. Ver [ADR-005](.claude/decisions/ADR-005-snapshot-unico-y-reglas-como-filtros.md).
 
 - **Por qué ObjectStore y no `get_parameter`:** `self.get_parameter` solo devuelve strings planos y no expresa el mapa anidado `timeframes`; la UI de parámetros de QC cloud es plana. ObjectStore es el único mecanismo portable local↔cloud que soporta estructura anidada y mantiene la config fuera del código (mismo canal que los universos CSV). El `config.json` del proyecto queda como archivo de LEAN + parámetros escalares sueltos (`env`, etc.) — **no** config de negocio anidada.
 - **D-E4 — `get_parameter` lee de `config.json`, no de `lean.json`:** `self.get_parameter("env")` lee desde `trade-scanner/config.json["parameters"]`. El campo `"parameters"` en `lean.json` (raíz del workspace) es para el engine LEAN y es ignorado por `get_parameter`. Parámetros escalares del algoritmo → `trade-scanner/config.json["parameters"]`. Config de negocio anidada → ObjectStore.
@@ -135,11 +138,11 @@ Una fila/objeto por candidato; serializa a CSV y JSON.
 | `partial_bar`           | `True`/`False`  | bool             | `True` si el precio viene del working bar (intraday)            |
 | `price`                 | float           | float            | Precio usado: close o working_bar.close                         |
 | `time_frames_evaluated` | `D,W,M`         | `["D","W","M"]`  | Timeframes evaluados por esta estrategia                        |
-| `sma_evidence`          | JSON string     | object           | `{tf: {period: {value, distance_pct, bucket}}}` — ver ejemplo (Etapa 6) |
+| `sma_evidence`          | JSON string     | object           | `{tf: {period: {value, distance_pct, bucket}}}` — proyección del snapshot único (Etapa 6/6B); ver ejemplo |
 | `passed_rules`          | pipe-separated  | array of string  | Reglas que pasaron (ej. `AboveSMA20\|NotExtended`)               |
 | `rules_passed_count`    | int             | int              | Conteo de reglas que pasaron; usado como score de ranking        |
 
-Ejemplo `sma_evidence` (clave `distance_pct` y `bucket` añadidos en Etapa 6; `distance_pct` es fracción, no porcentaje):
+Ejemplo `sma_evidence` (clave `distance_pct` y `bucket` añadidos en Etapa 6; proyección del snapshot por símbolo·scan, Etapa 6B; `distance_pct` es fracción, no porcentaje):
 ```json
 {
   "D": {"20": {"value": 150.20, "distance_pct": 0.0231, "bucket": "above_mild"}},
@@ -150,9 +153,11 @@ Ejemplo `sma_evidence` (clave `distance_pct` y `bucket` añadidos en Etapa 6; `d
 
 ## 6. Estrategia de referencia
 
-**`swing_eod`** (tras el cierre): universo `swing` filtrado → top N por `day_change_pct` → regla `AboveSMA(20, D∧W∧M)` → regla `NotExtended(sma=8 D, max 10%)` → ScanResult.
+**`swing_eod`** (tras el cierre): universo `swing` filtrado → top N por `day_change_pct` → regla `AboveSMA(20, D∧W∧M)` → regla `NotExtended(8, D)` → ScanResult.
 **`market_close`** (15:30 ET): mismas reglas; precio/OHLC desde working bar; resultado marcado `partial_bar=True`.
-Variante losers: top N negativos, reglas propias (placeholder, sin reglas en V1).
+Variante shorts (`*_short`): universo `swing_declines`, `direction: short` → las mismas reglas con `side="below"` por mirror (ADR-005): `AboveSMA` filtra `below_*`, `NotExtended` excluye `extended_below`. Sin reglas nuevas.
+
+> **Reglas (Etapa 6/6B):** una sola evaluación de posición precio↔SMA por símbolo·scan (snapshot único); las rules son filtros puros sobre buckets ya asignados. `NotExtended` no lleva umbral propio: excluye el bucket extremo, cuyo corte es el `bucket_thresholds.extended` único de la estrategia. Largos/cortos: mirror del set de buckets desde `direction`. Ver [ADR-005](.claude/decisions/ADR-005-snapshot-unico-y-reglas-como-filtros.md).
 
 ---
 
@@ -285,34 +290,51 @@ Variante losers: top N negativos, reglas propias (placeholder, sin reglas en V1)
 - [~] **F4:** smoke-test Alpaca diferido a Etapa 9 (ADR-003) — fuera de scope de 5B
 - [x] Viabilidad de SMA 200 por marco/proveedor documentada: M:200 viable en Stooq/zip (budget=4300 dev), excluida en prod (budget=1100 < 4221) con warning automático. Guardrail operativo (2026-06-12, T6.2)
 
-## Etapa 6 — Features y Rules
-**Estado:** en progreso
-**Objetivo:** feature `position_vs_sma` (clasificación en buckets configurables) y rules `AboveSMA`/`NotExtended` con evidencia, como unidades aisladas que respetan capas; umbralado en ObjectStore
+## Etapa 6 — Features y Rules (fundamentos L3/L4)
+**Estado:** completada (fundamentos) — **aplicación de reglas rediseñada en Etapa 6B**
+**Objetivo:** feature `position_vs_sma` (clasificación en 7 buckets configurables), umbralado en ObjectStore (`bucket_thresholds` + `resolve_bucket_thresholds`), y primera rule (`AboveSMA`/`RuleResult`) — capa de negocio puro, aislada y testeada a mano
 **Depende de:** Etapa 5B
 **Spec detallado:** [.claude/fase-1-desarrollo-local/etapa-06.md](.claude/fase-1-desarrollo-local/etapa-06.md)
-**Alcance:**
-- `core/features.py`: `PositionResult` (dataclass), `position_vs_sma(sd, tf, period, thresholds)` (función pura, D1), `_bucketize` (7 buckets), `FeatureNotReady` (contrato de fríos; manejo en Etapa 7), `resolve_bucket_thresholds` (merge override-estrategia → global → defaults).
-- `core/symbol_data.py` (L2, solo lectura): accesor `close(tf)` — única vía para que L3 obtenga el cierre consolidado (la firma real es `sma(tf, period)` y devuelve indicador → leer `.current.value`).
-- `core/rules.py`: `AboveSMA(period, tfs, buckets_allowed)` (AND sobre todos los tf, valida buckets en construcción), `NotExtended(period, tf, max_pct)` (composición sobre `AboveSMA`, D4), `RuleResult` con evidencia `{tf:{period:{value,distance_pct,bucket}}}`.
-- `config/strategies.json`: sección global `bucket_thresholds` (`{near:0.005, mild:0.03, extended:0.10}` placeholder, calibración en Etapa 9) + override opcional por estrategia (D2).
-- Formateador puro del log de filtrado (líneas `[estrategia] Rule: N → M (−k required)` + `final: N candidatos`) — sin ejecutar el filtrado (Etapa 7).
-- `ScanResult`: añadir `rules_passed_count` y `sma_evidence`; reconciliar §5 (`dist_pct`→`distance_pct`, añadir `bucket`).
-- Tests por feature y rule con SymbolData sintético (fronteras exactas de buckets, AND, merge de thresholds, log literal).
+**Entregado y conservado:**
+- `core/features.py`: `PositionResult`, `position_vs_sma(sd, tf, period, thresholds)` (D1), `_bucketize` (7 buckets, fronteras exactas), `FeatureNotReady`, `BUCKETS`, `resolve_bucket_thresholds` (merge override-estrategia → global → defaults + validación de orden).
+- `core/symbol_data.py` (L2, solo lectura): accesor `close(tf)` (D3).
+- `config/strategies.json`: `bucket_thresholds` global placeholder (calibración en Etapa 9).
+- `core/rules.py`: `AboveSMA` + `RuleResult` (T3) — **firma de `evaluate` y generalización rediseñadas en 6B**.
 **Done when:**
-- [x] `position_vs_sma` clasifica los 7 buckets y los 6 cortes exactos; no-hardcodeo verificado con dos sets de thresholds (2026-06-12, T1.3: 82 passed)
-- [x] `resolve_bucket_thresholds` verifica global / override-estrategia / defaults con mock (2026-06-13, T2.2: 95 passed; param `full_config`, incl. validación de orden)
-- [ ] `AboveSMA` (AND sobre tfs) y `NotExtended` (corte en `max_pct`) con evidencia `{tf:{period:{value,distance_pct,bucket}}}`; tests verdes
-- [ ] Formateador reproduce literalmente las 4 líneas del log de ejemplo
-- [ ] Ninguna feature/rule importa `QCAlgorithm`/`self.history` (solo leen SymbolData); `ScanResult` y §5 reconciliados
+- [x] `position_vs_sma` clasifica los 7 buckets y los 6 cortes exactos; no-hardcodeo con dos sets de thresholds (2026-06-12, T1.3: 82 passed)
+- [x] `resolve_bucket_thresholds` verifica global / override-estrategia / defaults con mock (2026-06-13, T2.2: 95 passed)
+- [x] `AboveSMA` (AND sobre tfs) + `RuleResult` con evidencia `{tf:{period:{value,distance_pct,bucket}}}`; tests verdes (2026-06-13, T3: 103 passed) — contrato `evaluate` redefinido en 6B
+- [x] §5 reconciliada (`dist_pct`→`distance_pct` + `bucket`); features/rules sin imports de `QCAlgorithm`/`self.history`
+- ➡️ `NotExtended`, formateador de log y campos de `ScanResult`: **trasladados a Etapa 6B** (no se realizaron en E6)
+
+## Etapa 6B — Snapshot único + reglas como filtros puros
+**Estado:** pendiente
+**Objetivo:** una sola evaluación de posición precio↔SMA por símbolo·scan (snapshot único), reglas convertidas en filtros puros sobre buckets ya asignados, simétricas long/short sin duplicar reglas; cerrar las piezas pendientes de la capa de reglas
+**Depende de:** Etapa 6
+**Autoridad de diseño:** [ADR-005](.claude/decisions/ADR-005-snapshot-unico-y-reglas-como-filtros.md) (aprobado). Supersede D4 de E6.
+**Spec detallado:** [.claude/fase-1-desarrollo-local/etapa-06b.md](.claude/fase-1-desarrollo-local/etapa-06b.md)
+**Alcance:**
+- `core/features.py`: `build_position_snapshot(sd, series, thresholds)` (snapshot `{tf:{period:PositionResult}}`, 1×/símbolo·scan, frío en un punto), `snapshot_evidence` (proyección), `mirror_buckets`+`_MIRROR`+`SIDE_BY_DIRECTION` (simetría long/short).
+- `core/rules.py`: `AboveSMA`→`SMAPositionRule` side-aware con `evaluate(snapshot)` (sin `sd` ni `thresholds`); `NotExtended(period, tf, side)` factory **sin `max_pct`** (excluye `extended_above`; corte = `bucket_thresholds.extended` único) — supersede D4; formateador de log de filtrado.
+- `config/strategies.json`: retirar `max_extension_pct` (redundante; sembrado en E3, sin consumidor).
+- `core/pipeline.py`: contrato mínimo de `ScanResult` (`rules_passed_count`, `sma_evidence` como proyección).
+- Tests: snapshot (cálculo único, frío, series no-referenciadas), mirror (involución, `near` autoespejo), rule long/short, `NotExtended`, log literal.
+**Done when:**
+- [ ] `build_position_snapshot` computa cada serie 1×, propaga `FeatureNotReady`, ignora series declaradas-no-referenciadas; `snapshot_evidence` proyecta exacto
+- [ ] `mirror_buckets`: identidad/`near` autoespejo/involución/above→below/⊆BUCKETS/`side` inválido → error
+- [ ] `SMAPositionRule.evaluate(snapshot)`: 8 tests de T3 migrados + casos short; evidencia completa al fallar; `buckets_allowed` inválido revienta en construcción
+- [ ] `NotExtended` sin `max_pct` excluye el bucket favorable-extremo (ambos lados); segundo `extended` mueve el corte
+- [ ] `max_extension_pct` retirado de config + `storage/`; `grep` `.py` limpio; round-trip idéntico
+- [ ] Formateador reproduce literalmente las 4 líneas; `ScanResult` con campos nuevos; suite verde. Commit `[Etapa 6B] ...`
 
 ## Etapa 7 — ScanPipeline + estrategias + schedule
 **Estado:** pendiente
 **Objetivo:** las dos estrategias V1 corriendo end-to-end en un solo nodo y produciendo ScanResults
-**Depende de:** Etapa 6
+**Depende de:** Etapa 6B
 **Alcance:**
-- `core/pipeline.py`: ejecuta universo → ranking top_n → reglas → `ScanResult`.
-- `strategies/swing_eod.py` y `strategies/market_close.py` como `StrategyConfig` declarativos (sin lógica nueva, solo composición).
-- `main.py` completo: una instancia de pipeline por estrategia, ScheduledEvents desde config, símbolos no listos (warmup incompleto) excluidos y logueados.
+- `core/pipeline.py`: por símbolo construye el **snapshot único** (`build_position_snapshot`, 6B) con la unión de `series` de la estrategia y los thresholds resueltos en `initialize()`; luego universo → ranking top_n → reglas (filtros sobre el snapshot) → `ScanResult`. Resuelve `direction`→`side` (vía `SIDE_BY_DIRECTION`) en un solo punto al componer las rules.
+- `strategies/swing_eod.py` y `strategies/market_close.py` como `StrategyConfig` declarativos (sin lógica nueva, solo composición de rules con su `buckets_allowed` canónico y `side`).
+- `main.py` completo: una instancia de pipeline por estrategia, ScheduledEvents desde config, símbolos no listos (warmup incompleto) o con serie fría excluidos y logueados (la exclusión por frío usa el `FeatureNotReady` que aflora en el builder).
 **Done when:**
 - [ ] `lean backtest` sobre ≥3 meses genera ScanResults reproducibles en fechas conocidas
 - [ ] `market_close` reporta OHLC parcial del día con `partial_bar=True`

@@ -2,6 +2,13 @@
 
 Bitácora acumulativa de la etapa (una sección por tarea).
 
+> ## ⚠️ Cierre y reorganización (2026-06-14)
+>
+> Tras T3, la **aplicación de reglas** se rediseñó en [ADR-005](../decisions/ADR-005-snapshot-unico-y-reglas-como-filtros.md) (aprobado) → nueva [Etapa 6B](etapa-06b.md). Esta bitácora es registro histórico de T1.1–T3 (no se reescribe). Qué sigue vigente y qué cambia:
+> - **T1.1, T1.2, T1.3, T2.1, T2.2, T2.3 — vigentes sin cambios** (`PositionResult`, `position_vs_sma`, `_bucketize`, `FeatureNotReady`, `bucket_thresholds`, `resolve_bucket_thresholds`).
+> - **T3 — vigente como lógica, DEPRECADO en contrato:** `evaluate(sd, thresholds)` → `evaluate(snapshot)` y `AboveSMA` → `SMAPositionRule` (ver nota en la sección T3 y 6B/T3). Las decisiones D-T3.1 (manejo de frío) y la firma cambian; D-T3.2/D-T3.3/D-T3.4/D-T3.5 se conservan en su mayoría.
+> - **D4 (NotExtended con `max_pct`) — SUPERSEDED** (nunca se implementó como T4; rediseñado sin `max_pct` en 6B/T4).
+
 ---
 
 ## T1.1 — `PositionResult` (2026-06-11)
@@ -244,3 +251,54 @@ Como *acción*, mínima: ningún cambio de código ni de script (el glob ya cubr
 ### Pendiente tras T2.3
 
 Sin pendientes. **Bloque T2 cerrado al 100%.** Siguiente: **T3** (`AboveSMA` + `RuleResult`).
+
+---
+
+## T3 — `AboveSMA` + `RuleResult` (L4, primera rule) (2026-06-13)
+
+> **⚠️ Contrato deprecado 2026-06-14 (ADR-005 / [Etapa 6B](etapa-06b.md) T3).** La implementación de abajo es correcta y queda como histórico, pero `evaluate(sd, thresholds)` pasa a `evaluate(snapshot)` y `AboveSMA` se generaliza a `SMAPositionRule` (mirror long/short). Se conserva: AND estricto, fail-fast de `buckets_allowed`, sin short-circuit, `RuleResult`. El contrato de frío (D-T3.1, frío propagado en `evaluate`) se traslada al builder del snapshot. Los 8 tests se migran en 6B.
+
+### Resultado contra el criterio de aceptación
+
+| Criterio T3 | Estado | Evidencia |
+|---|---|---|
+| `AboveSMA(period, tfs, buckets_allowed, required=True)` en `core/rules.py` | ✅ | Clase con `evaluate(sd, thresholds) -> RuleResult` |
+| `RuleResult` (dataclass): `passed`, `evidence`, `name`, `required` | ✅ | `core/rules.py`; `name` ej. `AboveSMA(20,W+M)` |
+| AND estricto: pasa si el bucket de **cada** tf ∈ `buckets_allowed` | ✅ | `evaluate` recorre todos los tf; `passed=False` si alguno cae fuera |
+| (a) todos los tf permitidos → `passed=True` | ✅ | `test_and_passes_when_all_tfs_in_allowed_buckets` (W above_strong + M above_mild) |
+| (b) un tf fuera → `passed=False` (AND, no OR) | ✅ | `test_and_fails_when_one_tf_out_of_range` (W ∈, M near ∉ → no pasa) |
+| (c) `evidence` con forma exacta `{tf:{period:{value,distance_pct,bucket}}}` para todos los tf, también al fallar | ✅ | `_assert_evidence` (claves exactas por nivel; value/bucket exactos, distance_pct `approx 1e-9`) en casos pasa y falla |
+| Sin short-circuit: el primer tf que falla no aborta la evidencia | ✅ | `test_evidence_complete_even_when_first_tf_fails` (D falla primero, W sigue evaluándose) |
+| (d) `buckets_allowed` inválido → revienta al **construir** (fail-fast) | ✅ | `test_invalid_buckets_allowed_raises_at_construction` (`ValueError`); `test_all_seven_buckets_allowed_is_valid` fija el set aceptado |
+| `name` con un solo tf | ✅ | `test_name_single_tf` → `AboveSMA(20,D)` |
+| `required` se propaga a `RuleResult` | ✅ | `test_required_flag_propagates_to_result` |
+| `core/rules.py` sin imports CLR | ✅ | `grep` solo halla la mención en el docstring; importa `dataclasses`/`typing` + `core.features` |
+| `run_tests.sh` verde | ✅ | **103 passed** (95 previos + 8 nuevos) |
+
+**Veredicto: ✅ T3 cumplido.** "Done when" #3 marcado `[x]` en etapa-06.md (en PLAN.md el checkbox agrupa `AboveSMA`+`NotExtended`: anotado `AboveSMA` ✅, falta `NotExtended`/T4).
+
+### Decisiones tomadas
+
+#### D-T3.1 — Fríos se **propagan**, no se manejan en la rule
+
+`evaluate` no envuelve `position_vs_sma` en try/except: si una serie está fría, `FeatureNotReady` sube al pipeline (Etapa 7), que excluye el símbolo y loguea. La rule asume símbolo ya validado (el pipeline excluye fríos **antes** de evaluar reglas). `test_cold_series_propagates_feature_not_ready` fija el contrato para que nadie añada un except que lo silencie. Coherente con la consideración técnica #6 del spec.
+
+#### D-T3.2 — Evaluación de TODOS los tf antes de decidir (sin short-circuit)
+
+Aunque para el AND bastaría cortar al primer bucket fuera de rango, `evaluate` recorre todos los tf y arma la evidencia completa primero; `passed` se baja a `False` sin romper el bucle. Razón: el criterio (c) exige evidencia de **todos** los tf también cuando la rule falla — la evidencia es para el output (Etapa 8), no solo para el veredicto. El costo (evaluar tf de más) es irrelevante: 2–3 tf por símbolo, lectura pura.
+
+#### D-T3.3 — `name` como `@property` derivada; clave `period` de la evidencia es `int`
+
+`name` se computa de `period`+`tfs` (no se almacena): una sola fuente. `NotExtended` (T4) producirá su propio `name` sin heredar el de `AboveSMA`. La evidencia usa `period` como clave **int** (natural desde `self.period`); la coerción a string es de la serialización JSON (Etapa 8), no del contrato en memoria.
+
+#### D-T3.4 — `RuleResult` dataclass **no** frozen
+
+A diferencia de `PositionResult` (frozen, campos escalares), `RuleResult` contiene `evidence: dict` (mutable): congelar solo el binding daría falsa sensación de inmutabilidad. Se deja como `@dataclass` plano (eq por valor para asserts). El spec pide "dataclass" sin exigir frozen.
+
+#### D-T3.5 — Stub multi-tf propio en `test_rules.py`
+
+El `StubSymbolData` de `test_features.py` tiene un único `(sma, close)` para todos los tf; las rules necesitan **distinto bucket por tf**. Se define un stub paralelo `{tf: (sma, close)}` en `test_rules.py` (mínimo: solo `is_ready`/`sma`/`close`). No se factoriza a un conftest compartido todavía — dos stubs pequeños y legibles > una abstracción prematura; si T4/T5 lo repiten, se promueve a `conftest.py`.
+
+### Pendiente tras T3
+
+Sin pendientes propios. Siguiente: **T4** (`NotExtended`, composición sobre `AboveSMA`, D4) — reutilizará `AboveSMA` con `buckets_allowed` = 7 menos `extended_above` e inyectará `max_pct` como `thresholds["extended"]` efectivo; `name` propio `NotExtended(8,D)` (ver D-T3.3: cada rule arma su nombre).
