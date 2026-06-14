@@ -1,44 +1,22 @@
-"""Tests de core/rules.py (Etapa 6, T3).
+"""Tests de core/rules.py — SMAPositionRule (Etapa 6B, T3).
 
 L4 negocio puro. rules.py no importa AlgorithmImports; la suite corre dentro de
 Docker (el import de `core` pasa por __init__, que sí toca CLR vía symbol_data).
-T3: AboveSMA — AND sobre tfs, evidencia `{tf:{period:{value,distance_pct,bucket}}}`,
-fail-fast de `buckets_allowed` en construcción, `name` = `AboveSMA(p,tf+tf)`.
-"""
-from types import SimpleNamespace
+SMAPositionRule filtra sobre el snapshot precalculado (`evaluate(snapshot)`): AND
+sobre tfs sin short-circuit, mirror en construcción para short, `name` por side+label,
+evidencia `{tf:{period:{value,distance_pct,bucket}}}` vía snapshot_evidence.
 
+El contrato de fríos del builder se prueba en test_features.py (no en las rules, que
+asumen snapshot caliente). AboveSMA fue eliminado en T3.2 (un solo símbolo de clase).
+"""
 import pytest
 
-from core.features import BUCKETS, FeatureNotReady
-from core.rules import AboveSMA, RuleResult
+from core.features import BUCKETS, PositionResult
+from core.rules import RuleResult, SMAPositionRule
 
 
-THRESHOLDS = {"near": 0.005, "mild": 0.03, "extended": 0.10}
-# Buckets "por encima" típicos de AboveSMA (todos los above).
+# Buckets "por encima" canónicos (vocabulario above); el mirror los lleva a short.
 ABOVE = {"above_mild", "above_strong", "extended_above"}
-
-
-class StubSymbolData:
-    """Stub multi-tf: cada tf con su (sma, close) → distinto bucket por tf.
-
-    Implementa solo la API que lee position_vs_sma: is_ready / sma / close.
-    """
-
-    def __init__(self, series: dict, ready: bool = True):
-        # series: {tf: (sma_value, close_value)}
-        self.symbol = "STUB"
-        self._series = series
-        self._ready = ready
-
-    def is_ready(self, tf, period) -> bool:
-        return self._ready
-
-    def sma(self, tf, period):
-        sma_value, _ = self._series[tf]
-        return SimpleNamespace(current=SimpleNamespace(value=sma_value))
-
-    def close(self, tf):
-        return self._series[tf][1]
 
 
 def _assert_evidence(evidence: dict, expected: dict) -> None:
@@ -58,10 +36,33 @@ def _assert_evidence(evidence: dict, expected: dict) -> None:
             assert entry["bucket"] == bucket
 
 
-# (a) — todos los tf en buckets permitidos → passed=True; name y evidence completos
-def test_and_passes_when_all_tfs_in_allowed_buckets():
-    sd = StubSymbolData({"W": (100.0, 105.0), "M": (100.0, 102.0)})
-    result = AboveSMA(20, ["W", "M"], buckets_allowed=ABOVE).evaluate(sd, THRESHOLDS)
+# ---------------------------------------------------------------------------
+# T3 (Etapa 6B) — SMAPositionRule: filtro puro sobre el snapshot (evaluate(snapshot)),
+# mirror en construcción para short, name por side+label, AND sin short-circuit.
+# ---------------------------------------------------------------------------
+
+def _snapshot(spec: dict) -> dict:
+    """Snapshot `{tf:{period:PositionResult}}` desde `{(tf,period):(value,distance_pct,bucket)}`.
+
+    Construye PositionResult directo (sin stub ni builder): aísla el filtro de la medición —
+    evaluate solo lee `.bucket`; la evidencia proyecta value/distance_pct/bucket.
+    """
+    snap: dict = {}
+    for (tf, period), (value, dist, bucket) in spec.items():
+        snap.setdefault(tf, {})[period] = PositionResult(
+            value=value, distance_pct=dist, bucket=bucket
+        )
+    return snap
+
+
+# (a) Largo: todos los tf en buckets permitidos → passed=True; evidencia y name completos
+def test_long_passes_when_all_tfs_in_allowed_buckets():
+    snap = _snapshot({
+        ("W", 20): (100.0, 0.05, "above_strong"),
+        ("M", 20): (100.0, 0.02, "above_mild"),
+    })
+    rule = SMAPositionRule(20, ["W", "M"], buckets_allowed=ABOVE, side="above")
+    result = rule.evaluate(snap)
     assert isinstance(result, RuleResult)
     assert result.passed is True
     assert result.name == "AboveSMA(20,W+M)"
@@ -75,58 +76,88 @@ def test_and_passes_when_all_tfs_in_allowed_buckets():
     )
 
 
-# (b) — UN tf fuera de rango → passed=False (AND, no OR); evidencia con AMBOS tf
-def test_and_fails_when_one_tf_out_of_range():
-    # W above_strong (∈ ABOVE), M near (∉ ABOVE) → la rule no pasa
-    sd = StubSymbolData({"W": (100.0, 105.0), "M": (100.0, 100.0)})
-    result = AboveSMA(20, ["W", "M"], buckets_allowed=ABOVE).evaluate(sd, THRESHOLDS)
+# (a) Largo: UN tf fuera → passed=False (AND, no OR)
+def test_long_fails_when_one_tf_out_of_range():
+    snap = _snapshot({
+        ("W", 20): (100.0, 0.05, "above_strong"),  # ∈ ABOVE
+        ("M", 20): (100.0, 0.0, "near"),           # ∉ ABOVE
+    })
+    result = SMAPositionRule(20, ["W", "M"], buckets_allowed=ABOVE, side="above").evaluate(snap)
+    assert result.passed is False
+
+
+# (b) Corto: mismos buckets canónicos, mirror a below_*. extended_below pasa; above_* no.
+def test_short_mirror_filters_below_buckets():
+    rule = SMAPositionRule(20, ["D"], buckets_allowed=ABOVE, side="below")
+    # el set permitido quedó espejado a los below_*
+    assert rule.buckets_allowed == frozenset({"below_mild", "below_strong", "extended_below"})
+    passes = rule.evaluate(_snapshot({("D", 20): (100.0, -0.12, "extended_below")}))
+    fails = rule.evaluate(_snapshot({("D", 20): (100.0, 0.05, "above_strong")}))
+    assert passes.passed is True
+    assert fails.passed is False
+
+
+# (b) name corto: BelowSMA(...)
+def test_short_name_renders_below():
+    assert SMAPositionRule(20, ["W", "M"], ABOVE, side="below").name == "BelowSMA(20,W+M)"
+    assert SMAPositionRule(20, ["D"], ABOVE, side="below").name == "BelowSMA(20,D)"
+
+
+# (c) Evidencia con AMBOS tf aun cuando el PRIMERO falla (sin short-circuit)
+def test_smarule_evidence_complete_even_when_first_tf_fails():
+    snap = _snapshot({
+        ("D", 20): (100.0, 0.0, "near"),           # ∉ ABOVE → falla
+        ("W", 20): (100.0, 0.05, "above_strong"),  # ∈ ABOVE
+    })
+    result = SMAPositionRule(20, ["D", "W"], buckets_allowed=ABOVE, side="above").evaluate(snap)
     assert result.passed is False
     _assert_evidence(
         result.evidence,
         {
+            "D": {20: (100.0, 0.0, "near")},
             "W": {20: (100.0, 0.05, "above_strong")},
-            "M": {20: (100.0, 0.0, "near")},
         },
     )
 
 
-# (b2) — no hay short-circuit: aunque el PRIMER tf falle, se evalúan todos
-def test_evidence_complete_even_when_first_tf_fails():
-    sd = StubSymbolData({"D": (100.0, 100.0), "W": (100.0, 105.0)})  # D near (∉), W ∈
-    result = AboveSMA(20, ["D", "W"], buckets_allowed=ABOVE).evaluate(sd, THRESHOLDS)
-    assert result.passed is False
-    assert set(result.evidence) == {"D", "W"}
-    assert result.evidence["W"][20]["bucket"] == "above_strong"
-
-
-# (d) — buckets_allowed con un bucket inexistente → revienta al CONSTRUIR
-def test_invalid_buckets_allowed_raises_at_construction():
+# (d) buckets_allowed inválido → ValueError EN CONSTRUCCIÓN (sobre los buckets canónicos)
+def test_smarule_invalid_buckets_allowed_raises_at_construction():
     with pytest.raises(ValueError, match="desconocidos"):
-        AboveSMA(20, ["D"], buckets_allowed={"above_mild", "not_a_bucket"})
+        SMAPositionRule(20, ["D"], buckets_allowed={"above_mild", "not_a_bucket"}, side="above")
 
 
-# Los 7 buckets exactos son un buckets_allowed válido (fija que BUCKETS es el set aceptado)
-def test_all_seven_buckets_allowed_is_valid():
-    rule = AboveSMA(20, ["D"], buckets_allowed=set(BUCKETS))
-    assert rule.buckets_allowed == set(BUCKETS)
+# (d) side inválido → ValueError en construcción (vía mirror_buckets)
+def test_invalid_side_raises_at_construction():
+    with pytest.raises(ValueError, match="side inválido"):
+        SMAPositionRule(20, ["D"], buckets_allowed=ABOVE, side="sideways")
 
 
-# name con un solo tf: AboveSMA(20,D)
-def test_name_single_tf():
-    assert AboveSMA(20, ["D"], buckets_allowed=ABOVE).name == "AboveSMA(20,D)"
+# (e) Los 7 buckets son un buckets_allowed válido; el mirror a short sigue ⊆ BUCKETS
+def test_all_seven_buckets_allowed_is_valid_both_sides():
+    assert SMAPositionRule(20, ["D"], set(BUCKETS), side="above").buckets_allowed == frozenset(BUCKETS)
+    assert SMAPositionRule(20, ["D"], set(BUCKETS), side="below").buckets_allowed == frozenset(BUCKETS)
+
+
+# (e) name para 1 y N tf en lado largo + label custom (NotExtended-style)
+def test_name_variants():
+    assert SMAPositionRule(20, ["D"], ABOVE, side="above").name == "AboveSMA(20,D)"
+    assert SMAPositionRule(20, ["W", "M"], ABOVE, side="above").name == "AboveSMA(20,W+M)"
+    assert SMAPositionRule(
+        8, ["D"], set(BUCKETS) - {"extended_above"}, side="above", label="NotExtended"
+    ).name == "NotExtended(8,D)"
+
+
+# (e) evaluate NO maneja fríos: sobre snapshot construido nunca toca FeatureNotReady; una
+# serie ausente es KeyError (error de programación), no se silencia ni se trata como frío.
+def test_evaluate_does_not_handle_cold_missing_series_is_keyerror():
+    rule = SMAPositionRule(20, ["D", "W"], buckets_allowed=ABOVE, side="above")
+    snap = _snapshot({("D", 20): (100.0, 0.05, "above_strong")})  # falta W:20
+    with pytest.raises(KeyError):
+        rule.evaluate(snap)
 
 
 # required se propaga a RuleResult
-def test_required_flag_propagates_to_result():
-    sd = StubSymbolData({"D": (100.0, 105.0)})
-    result = AboveSMA(
-        20, ["D"], buckets_allowed=ABOVE, required=False
-    ).evaluate(sd, THRESHOLDS)
+def test_required_flag_propagates():
+    snap = _snapshot({("D", 20): (100.0, 0.05, "above_strong")})
+    result = SMAPositionRule(20, ["D"], ABOVE, side="above", required=False).evaluate(snap)
     assert result.required is False
-
-
-# Fríos: la rule NO los maneja — deja propagar FeatureNotReady (exclusión = Etapa 7)
-def test_cold_series_propagates_feature_not_ready():
-    sd = StubSymbolData({"D": (100.0, 105.0)}, ready=False)
-    with pytest.raises(FeatureNotReady):
-        AboveSMA(20, ["D"], buckets_allowed=ABOVE).evaluate(sd, THRESHOLDS)

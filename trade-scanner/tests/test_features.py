@@ -10,6 +10,7 @@ T2.2: resolve_bucket_thresholds — 3 rutas de merge (global / override / defaul
 always-3-keys y validación de orden 0 < near < mild < extended.
 """
 import dataclasses
+import itertools
 from types import SimpleNamespace
 
 import pytest
@@ -17,10 +18,13 @@ import pytest
 from core.features import (
     BUCKETS,
     DEFAULT_BUCKET_THRESHOLDS,
+    SIDE_BY_DIRECTION,
     FeatureNotReady,
     PositionResult,
     _bucketize,
+    _MIRROR,
     build_position_snapshot,
+    mirror_buckets,
     position_vs_sma,
     resolve_bucket_thresholds,
     snapshot_evidence,
@@ -504,8 +508,8 @@ def test_snapshot_evidence_multiple_periods_same_tf():
     )
 
 
-# (d) proyección de un snapshot REAL (vía builder): forma idéntica al dict inline que hoy
-# arma AboveSMA.evaluate (rules.py:69-75) y que T3 reemplaza por esta función
+# (d) proyección de un snapshot REAL (vía builder): forma que consume SMAPositionRule.evaluate
+# como evidencia (la construcción inline de la vieja AboveSMA se reemplazó por snapshot_evidence)
 def test_snapshot_evidence_reproduces_builder_snapshot_schema():
     sd = MultiSeriesStub(
         closes={"W": 105.0, "M": 102.0},
@@ -520,3 +524,75 @@ def test_snapshot_evidence_reproduces_builder_snapshot_schema():
             "M": {20: (100.0, 0.02, "above_mild")},
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# T2.1 (Etapa 6B) — mirror_buckets + _MIRROR + SIDE_BY_DIRECTION: biyección above↔below
+# involutiva y total sobre los 7 buckets, `near` autoespejo; identidad en "above".
+# ---------------------------------------------------------------------------
+
+def _powerset(items):
+    """Los 2^n subconjuntos (como frozensets) — incluye el vacío y el total."""
+    return [
+        frozenset(combo)
+        for r in range(len(items) + 1)
+        for combo in itertools.combinations(items, r)
+    ]
+
+
+# _MIRROR es una biyección total e involutiva sobre los 7 buckets, con `near` autoespejo:
+# blinda el caso de frontera contra un refactor que "optimice" a un if y olvide `near`.
+def test_mirror_table_is_total_involutive_bijection():
+    assert set(_MIRROR) == set(BUCKETS)               # 7 claves = los 7 buckets
+    assert set(_MIRROR.values()) == set(BUCKETS)      # imagen = los 7 buckets (sobre + iny)
+    assert all(_MIRROR[_MIRROR[b]] == b for b in BUCKETS)  # involutiva
+    assert _MIRROR["near"] == "near"                  # near autoespejo
+
+
+# (a)+(c)+(e) exhaustivo sobre los 128 subconjuntos: identidad (above), involución
+# (below∘below = id) y cierre (resultado ⊆ BUCKETS) en ambos lados.
+def test_mirror_exhaustive_identity_involution_and_closure():
+    all_buckets = frozenset(BUCKETS)
+    for subset in _powerset(BUCKETS):
+        assert mirror_buckets(subset, "above") == frozenset(subset)   # (a) identidad
+        below = mirror_buckets(subset, "below")
+        assert mirror_buckets(below, "below") == frozenset(subset)    # (c) involución
+        assert mirror_buckets(subset, "above") <= all_buckets         # (e) cierre above
+        assert below <= all_buckets                                   # (e) cierre below
+
+
+# (b) near autoespejo en el API público
+def test_mirror_near_is_self_symmetric():
+    assert mirror_buckets({"near"}, "below") == frozenset({"near"})
+
+
+# (d) above→below explícito: los 3 buckets canónicos "above" → sus 3 espejos "below"
+def test_mirror_above_set_to_below_set():
+    result = mirror_buckets({"above_mild", "above_strong", "extended_above"}, "below")
+    assert result == frozenset({"below_mild", "below_strong", "extended_below"})
+
+
+# mirror_buckets devuelve frozenset (inmutable: seguro como atributo de la rule)
+def test_mirror_returns_frozenset():
+    assert isinstance(mirror_buckets({"above_mild"}, "above"), frozenset)
+    assert isinstance(mirror_buckets({"above_mild"}, "below"), frozenset)
+
+
+# vacío → frozenset vacío en ambos lados (degenerado pero total)
+def test_mirror_empty_set():
+    assert mirror_buckets(set(), "above") == frozenset()
+    assert mirror_buckets(set(), "below") == frozenset()
+
+
+# (e) side inválido → ValueError fail-fast (no "above"/"below" exacto)
+@pytest.mark.parametrize("bad_side", ["long", "short", "ABOVE", "Below", "", "up", None])
+def test_mirror_invalid_side_raises(bad_side):
+    with pytest.raises(ValueError, match="side inválido"):
+        mirror_buckets({"near"}, bad_side)
+
+
+# SIDE_BY_DIRECTION: única fuente de la traducción direction→side (D6B.4)
+def test_side_by_direction_mapping():
+    assert SIDE_BY_DIRECTION == {"long": "above", "short": "below"}
+    # coherente con los `side` que acepta mirror_buckets
+    assert set(SIDE_BY_DIRECTION.values()) == {"above", "below"}

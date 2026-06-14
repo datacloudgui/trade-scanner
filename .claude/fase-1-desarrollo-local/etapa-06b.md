@@ -63,7 +63,7 @@ Redundante con `bucket_thresholds.extended` (hoy ambos `0.10` en las 4 estrategi
 
 ### T2 — `mirror_buckets` + `_MIRROR` (L3, `core/features.py`)
 
-- **T2.1 (FABLE xhigh)** — `_MIRROR: dict[str,str]` (7 entradas; `above_*↔below_*`, `near→near`) y `mirror_buckets(buckets: Iterable[str], side: str) -> frozenset[str]`: `side=="above"` → identidad; `side=="below"` → espejo por `_MIRROR`. Valida `side ∈ {"above","below"}` (fail-fast). Añadir `SIDE_BY_DIRECTION = {"long":"above","short":"below"}` (D6B.4).
+- **T2.1 (FABLE xhigh)** ✅ *(implementada 2026-06-14 — ver `etapa-06b-t2-decisiones-y-pendientes.md`)* — `_MIRROR: dict[str,str]` (7 entradas; `above_*↔below_*`, `near→near`) y `mirror_buckets(buckets: Iterable[str], side: str) -> frozenset[str]`: `side=="above"` → identidad; `side=="below"` → espejo por `_MIRROR`. Valida `side ∈ {"above","below"}` (fail-fast). Añadir `SIDE_BY_DIRECTION = {"long":"above","short":"below"}` (D6B.4).
 
 **Criterio de aceptación:**
 - (a) `mirror_buckets(X, "above") == frozenset(X)` (identidad).
@@ -75,14 +75,14 @@ Redundante con `bucket_thresholds.extended` (hoy ambos `0.10` en las 4 estrategi
 
 ### T3 — `SMAPositionRule` (generaliza `AboveSMA`, `evaluate(snapshot)`) (L4, `core/rules.py`)
 
-- **T3.1 (FABLE xhigh)** — `SMAPositionRule(period, tfs, buckets_allowed, side, required=True, label="SMA")`: (1) valida `buckets_allowed` **canónicos** ⊆ `BUCKETS` en construcción (fail-fast, como T3); (2) almacena `self.buckets_allowed = mirror_buckets(buckets_allowed, side)` (una vez). `name` (property) renderiza por `side`+`label`: `label=="SMA"` → `AboveSMA(...)`/`BelowSMA(...)`; otro `label` → `<label>(period,tfs)`. `evaluate(snapshot) -> RuleResult`: para **todos** los tf en `tfs`, lee `snapshot[tf][period]`, baja `passed` si algún `bucket ∉ self.buckets_allowed` (AND, sin short-circuit), arma `evidence = snapshot_evidence(snapshot, [(tf,period) for tf in tfs])`.
-- **T3.2** — Migrar `AboveSMA` → `SMAPositionRule(label="SMA")`. El símbolo `AboveSMA` puede conservarse como alias/factory `side="above"` si simplifica E7, pero la clase base es genérica.
-- **T3.3 — Limpieza (cero código muerto en `rules.py`).** Al refactorizar:
+- **T3.1 (FABLE xhigh)** ✅ *(implementada 2026-06-14 — ver `etapa-06b-t3-1-decisiones-y-pendientes.md`; T3.2–T3.4 pendientes para cerrar T3)* — `SMAPositionRule(period, tfs, buckets_allowed, side, required=True, label="SMA")`: (1) valida `buckets_allowed` **canónicos** ⊆ `BUCKETS` en construcción (fail-fast, como T3); (2) almacena `self.buckets_allowed = mirror_buckets(buckets_allowed, side)` (una vez). `name` (property) renderiza por `side`+`label`: `label=="SMA"` → `AboveSMA(...)`/`BelowSMA(...)`; otro `label` → `<label>(period,tfs)`. `evaluate(snapshot) -> RuleResult`: para **todos** los tf en `tfs`, lee `snapshot[tf][period]`, baja `passed` si algún `bucket ∉ self.buckets_allowed` (AND, sin short-circuit), arma `evidence = snapshot_evidence(snapshot, [(tf,period) for tf in tfs])`.
+- **T3.2** ✅ *(2026-06-14 — ver `etapa-06b-t3-2-decisiones-y-pendientes.md`)* — Migrar `AboveSMA` → `SMAPositionRule(label="SMA")`. **Decisión del usuario: `AboveSMA` ELIMINADO** (no se conserva como factory; un solo símbolo de clase). E7 compondrá long con `side="above"` explícito (que en la práctica saldrá de config vía `SIDE_BY_DIRECTION`).
+- **T3.3 — Limpieza (cero código muerto en `rules.py`).** ✅ *(2026-06-14)* Al refactorizar:
   - **Eliminar** el cuerpo viejo `evaluate(sd, thresholds)` y su construcción **inline** de `evidence` (`rules.py:69-75`) — la evidencia sale de `snapshot_evidence` (T1.2).
   - **Eliminar el import huérfano** `position_vs_sma` de `rules.py` (línea 10): tras el refactor `rules.py` ya **no** lo llama (lo usa el builder en `features.py`). Dejar `from core.features import BUCKETS, mirror_buckets, snapshot_evidence` (+ `SIDE_BY_DIRECTION` si se usa aquí).
   - **Actualizar el docstring del módulo** (`rules.py:1-6`): hoy dice "evalúa `position_vs_sma` (L3)"; pasa a "filtra sobre el snapshot precalculado".
   - **Si `AboveSMA` deja de ser clase** (se vuelve factory o se elimina): no dejar la clase vieja y la nueva conviviendo — un solo símbolo.
-- **T3.4 — Limpieza de tests (`test_rules.py`).**
+- **T3.4 — Limpieza de tests (`test_rules.py`).** ✅ *(2026-06-14 — `StubSymbolData` ELIMINADO en vez de reubicado: el builder ya usa `MultiSeriesStub` (T1.1); el test de frío ya está cubierto por `test_cold_series_halts_and_propagates` en test_features.py. Los 8 tests de `AboveSMA` se borraron: los 11 de `SMAPositionRule` (T3.1) los superan bajo el nuevo contrato.)*
   - **Reubicar** `StubSymbolData` (lee `is_ready`/`sma`/`close`) a `test_features.py` (o `conftest.py`): tras la migración lo necesitan los tests del **builder** (T1), no las rules (que reciben snapshots). No dejar el stub huérfano en `test_rules.py`.
   - **Mover** `test_cold_series_propagates_feature_not_ready` (`test_rules.py:129`) a `test_features.py`: el frío ahora aflora en `build_position_snapshot`, no en `evaluate`. Borrarlo de `test_rules.py`.
   - **Reescribir** los 8 tests de T3 para construir el snapshot (`build_position_snapshot`/stub→dict) y llamar `evaluate(snapshot)`; eliminar las llamadas `.evaluate(sd, THRESHOLDS)` y el `THRESHOLDS` local si queda sin uso.
@@ -173,8 +173,8 @@ Redundante con `bucket_thresholds.extended` (hoy ambos `0.10` en las 4 estrategi
 ## Done when (medible)
 
 - [x] `build_position_snapshot` computa cada serie **una sola vez**, propaga `FeatureNotReady` en la primera serie fría, y **no** computa ni excluye por series declaradas-pero-no-referenciadas; `snapshot_evidence` proyecta el esquema exacto. Tests verdes — `bash scripts/run_tests.sh`. *(T1.1+T1.2 — 112 passed, 2026-06-14)*
-- [ ] `mirror_buckets` verifica identidad (above), `near` autoespejo, involución, above→below, resultado ⊆ `BUCKETS`, `side` inválido → `ValueError`. Tests verdes.
-- [ ] `SMAPositionRule` con `evaluate(snapshot)`: los 8 tests de T3 migrados + casos short (mirror) verdes; evidencia completa aun al fallar; `buckets_allowed` inválido revienta en construcción; `evaluate` no toca `FeatureNotReady`.
+- [x] `mirror_buckets` verifica identidad (above), `near` autoespejo, involución, above→below, resultado ⊆ `BUCKETS`, `side` inválido → `ValueError`. Tests verdes. *(T2.1 — 126 passed, 2026-06-14)*
+- [x] `SMAPositionRule` con `evaluate(snapshot)`: los 8 tests de T3 migrados + casos short (mirror) verdes; evidencia completa aun al fallar; `buckets_allowed` inválido revienta en construcción; `evaluate` no toca `FeatureNotReady`. *(T3.1–T3.4 — `AboveSMA` eliminado; 129 passed, 2026-06-14)*
 - [ ] `NotExtended` (sin `max_pct`) excluye el bucket favorable-extremo en ambos lados; un segundo `bucket_thresholds.extended` mueve el corte; evidencia coherente. Tests verdes.
 - [ ] `max_extension_pct` retirado de `config/strategies.json` y de `storage/` tras el seed; `grep` en `.py` limpio; round-trip idéntico; `resolve_bucket_thresholds` intacto.
 - [ ] Formateador reproduce **literalmente** las 4 líneas del ejemplo.
@@ -186,5 +186,5 @@ Redundante con `bucket_thresholds.extended` (hoy ambos `0.10` en las 4 estrategi
 
 ## Preguntas abiertas
 
-- [ ] **¿Conservar el símbolo `AboveSMA`** (como alias/factory `side="above"` de `SMAPositionRule`) o eliminarlo del namespace? Propuesta: conservarlo como factory delgada — E7 lo usa para componer estrategias long sin pasar `side` a mano; el render de `name` ya distingue lado. Decidir al implementar T3.2.
+- [x] **¿Conservar el símbolo `AboveSMA`** (como alias/factory `side="above"` de `SMAPositionRule`) o eliminarlo del namespace? **RESUELTO (2026-06-14): ELIMINADO.** Tras el rediseño no hay semántica "above-específica" — es `SMAPositionRule(side="above")`; una factory reintroduciría la dualidad que el rediseño quitó y forzaría simétricos `BelowSMA`/etc. E7 apunta a composición config-driven (`direction→side` vía `SIDE_BY_DIRECTION`), así que `side` no se teclea a mano: la factory aportaba poco. El `name` sigue renderizando `AboveSMA(...)`/`BelowSMA(...)` como etiqueta legible. Reintroducir factory es trivial si E7 muestra fricción real.
 - [ ] **Ubicación del formateador de log** (`rules.py` vs `pipeline.py`): preferencia `pipeline.py` (vive junto al filtrado de E7), pero `rules.py` lo mantiene con el resto de L4 puro. Decidir en T6.

@@ -33,6 +33,40 @@ BUCKETS: tuple[str, ...] = (
 )
 
 
+# Espejo above↔below de los 7 buckets (biyección total, `near` autoespejo). Soporta
+# la simetría largo/corto (D6B.4): una rule se autora en vocabulario canónico "above" y
+# `mirror_buckets` traduce su set permitido al lado "below" sin duplicar reglas.
+_MIRROR: dict[str, str] = {
+    "extended_above": "extended_below",
+    "above_strong": "below_strong",
+    "above_mild": "below_mild",
+    "near": "near",
+    "below_mild": "above_mild",
+    "below_strong": "above_strong",
+    "extended_below": "extended_above",
+}
+
+
+# Única fuente de la traducción direction→side (lectura de config, D6B.4). La resolución
+# real (leer `direction` del strategies.json) es de Etapa 7; aquí solo el mapa.
+SIDE_BY_DIRECTION: dict[str, str] = {"long": "above", "short": "below"}
+
+
+def mirror_buckets(buckets: Iterable[str], side: str) -> frozenset[str]:
+    """Set de buckets canónico ("above") proyectado al `side` pedido.
+
+    `side=="above"` → identidad; `side=="below"` → espejo por `_MIRROR`. Biyección
+    involutiva y total sobre los 7 buckets (`near` autoespejo) ⇒ el resultado de un set
+    canónico válido siempre ⊆ `BUCKETS`, sin re-validar en caliente. Valida `side`
+    (fail-fast); asume `buckets` canónicos (la validación ⊆ `BUCKETS` es de la rule, T3).
+    """
+    if side not in ("above", "below"):
+        raise ValueError(f"side inválido: {side!r}; válidos: 'above', 'below'")
+    if side == "above":
+        return frozenset(buckets)
+    return frozenset(_MIRROR[b] for b in buckets)
+
+
 # Defaults del código (placeholder D2; calibración real en Etapa 9). Última red
 # del merge cuando ni el global ni el override de estrategia traen una clave.
 DEFAULT_BUCKET_THRESHOLDS: dict[str, float] = {
