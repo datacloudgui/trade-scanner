@@ -6,7 +6,13 @@ ejemplo de la spec, incluidos la flecha U+2192 y el signo menos U+2212 (no el gu
 contrato mínimo de ScanResult — construible sin args, campos nuevos con sus defaults, sin lógica de
 llenado (eso es Etapa 7).
 """
-from core.pipeline import ScanResult, format_filter_line, format_final_line
+from types import SimpleNamespace
+
+import pytest
+
+from core.pipeline import ScanPipeline, ScanResult, format_filter_line, format_final_line
+from core.rules import RuleResult
+from strategies.swing_eod import swing_eod
 
 
 # (criterio T6) las 4 líneas del ejemplo, reproducidas literalmente desde contadores
@@ -67,3 +73,227 @@ def test_scanresult_evidence_default_is_per_instance():
     a = ScanResult()
     a.sma_evidence["D"] = {20: {}}
     assert ScanResult().sma_evidence == {}  # una instancia nueva no ve la mutación de `a`
+
+
+# (T4.2) ScanResult extendido con los campos de §5, todos con default → contrato mínimo intacto
+def test_scanresult_section5_fields_have_defaults():
+    r = ScanResult()
+    assert r.strategy == "" and r.ticker == "" and r.direction == ""
+    assert r.as_of is None and r.partial_bar is False and r.price == 0.0
+    assert r.time_frames_evaluated == [] and r.passed_rules == []
+
+
+# ---------------------------------------------------------------------------
+# T4.1 — ScanPipeline: gate (B) → ranking top_n → snapshot+cascada → ScanResult.
+# Stubs sintéticos (sin CLR). Las rules reales (swing_eod) ejercitan la cascada de
+# verdad; StubRule controla la orquestación cuando no importa la lógica de buckets.
+# ---------------------------------------------------------------------------
+
+THRESHOLDS = {"near": 0.005, "mild": 0.03, "extended": 0.10}
+SWING_SERIES = {("D", 8), ("D", 20), ("W", 20), ("M", 20)}
+
+
+class FakeSymbolData:
+    """SymbolData sintético para el pipeline: `.symbol.value` (ticker), `.working_bar` (precio
+    "ahora"), `.close("D")` (cierre de ayer), `.is_ready`/`.sma` por serie. `price=None` → sin
+    working bar; `cold` marca series no-ready."""
+
+    def __init__(self, ticker, price, daily_close, smas, cold=frozenset()):
+        self.symbol = SimpleNamespace(value=ticker)
+        self.working_bar = None if price is None else SimpleNamespace(close=price)
+        self._daily_close = daily_close
+        self._smas = dict(smas)
+        self._cold = set(cold)
+
+    def is_ready(self, tf, period):
+        return (tf, period) not in self._cold
+
+    def sma(self, tf, period):
+        return SimpleNamespace(current=SimpleNamespace(value=self._smas[(tf, period)]))
+
+    def close(self, tf):
+        return self._daily_close
+
+
+class StubRule:
+    """Rule de orquestación: `name`/`required` del contrato de SMAPositionRule; `evaluate`
+    devuelve un veredicto fijo e ignora el snapshot (la lógica de buckets se prueba en
+    test_rules). Para tests donde solo importa el flujo del pipeline, no el filtrado real."""
+
+    def __init__(self, name, passed=True, required=True):
+        self.name = name
+        self._passed = passed
+        self.required = required
+
+    def evaluate(self, snapshot):
+        return RuleResult(passed=self._passed, evidence={}, name=self.name, required=self.required)
+
+
+def _pipeline(rules, *, direction="long", side="above", series=SWING_SERIES, top_n=50,
+              partial_bar=False):
+    return ScanPipeline(
+        strategy_name="swing_eod", direction=direction, side=side, rules=rules,
+        series=series, thresholds=THRESHOLDS, top_n=top_n, partial_bar=partial_bar,
+    )
+
+
+def _as_map(symbols):
+    return {sd.symbol.value: sd for sd in symbols}
+
+
+# price=102 vs SMA=100 en las 4 series → above_mild en todas → pasa las rules "above".
+def _passing(ticker, daily_close):
+    return FakeSymbolData(
+        ticker, price=102.0, daily_close=daily_close,
+        smas={("D", 8): 100.0, ("D", 20): 100.0, ("W", 20): 100.0, ("M", 20): 100.0},
+    )
+
+
+# price=98 vs SMA=100 → below_mild → pasa las rules "below" (decliners).
+def _below_passing(ticker, daily_close):
+    return FakeSymbolData(
+        ticker, price=98.0, daily_close=daily_close,
+        smas={("D", 8): 100.0, ("D", 20): 100.0, ("W", 20): 100.0, ("M", 20): 100.0},
+    )
+
+
+# (b) gate: serie REFERENCIADA fría excluye; serie declarada-NO-referenciada fría NO excluye
+def test_gate_excludes_referenced_cold_keeps_unreferenced_cold():
+    log = []
+    series = {("D", 20), ("W", 20)}
+    a = FakeSymbolData("AAA", 102.0, 100.0, {("D", 20): 100.0, ("W", 20): 100.0},
+                       cold={("W", 20)})                       # W:20 referenciada y fría
+    b = FakeSymbolData("BBB", 102.0, 100.0,
+                       {("D", 20): 100.0, ("W", 20): 100.0, ("W", 200): 0.0},
+                       cold={("W", 200)})                      # W:200 fría pero NO referenciada
+    results = _pipeline([StubRule("R1")], series=series).scan(
+        _as_map([a, b]), as_of="t0", log=log.append
+    )
+    assert [r.ticker for r in results] == ["BBB"]
+    assert any("AAA" in line and "W:20 fría" in line for line in log)
+
+
+# (c) ranking long: desc por day_change_pct, tie-break ticker, corta en top_n
+def test_ranking_long_desc_and_top_n():
+    syms = [_passing("AAA", 100.0), _passing("BBB", 98.0),
+            _passing("CCC", 101.0), _passing("DDD", 100.0)]
+    # day_change: BBB≈0.0408, AAA=0.02, DDD=0.02, CCC≈0.0099 → top2 desc = BBB, AAA (tie→ticker)
+    results = _pipeline([StubRule("R1")], direction="long", top_n=2).scan(_as_map(syms), "t0")
+    assert [r.ticker for r in results] == ["BBB", "AAA"]
+
+
+# (c) ranking short: asc por day_change_pct (mayores caídas primero), con rules "below" reales
+def test_ranking_short_asc_and_top_n():
+    syms = [_below_passing("AAA", 100.0), _below_passing("BBB", 102.0),
+            _below_passing("CCC", 99.0)]
+    # day_change: BBB≈-0.0392, AAA=-0.02, CCC≈-0.0101 → top2 asc = BBB, AAA
+    results = _pipeline(swing_eod.build_rules("below"), direction="short", side="below",
+                        top_n=2).scan(_as_map(syms), "t0")
+    assert [r.ticker for r in results] == ["BBB", "AAA"]
+
+
+# (a) solo los que pasan TODAS las required quedan; rules reales (cascada de verdad)
+def _ok():
+    return _passing("AAA", 100.0)                                  # above_mild en todo → pasa
+
+
+def _fails_above_d():
+    return FakeSymbolData("BBB", 102.0, 100.0,
+        {("D", 8): 100.0, ("D", 20): 130.0, ("W", 20): 100.0, ("M", 20): 100.0})  # D:20 below
+
+
+def _fails_not_extended():
+    return FakeSymbolData("CCC", 102.0, 100.0,
+        {("D", 8): 90.0, ("D", 20): 100.0, ("W", 20): 100.0, ("M", 20): 100.0})   # D:8 extended
+
+
+def test_only_symbols_passing_all_required_become_results():
+    results = _pipeline(swing_eod.build_rules("above")).scan(
+        _as_map([_ok(), _fails_above_d(), _fails_not_extended()]), "t0"
+    )
+    assert [r.ticker for r in results] == ["AAA"]
+    assert results[0].rules_passed_count == 3
+    assert results[0].passed_rules == ["AboveSMA(20,W+M)", "AboveSMA(20,D)", "NotExtended(8,D)"]
+
+
+# (c) embudo: format_filter_line por rule (cascada) + format_final_line; arranca tras gate+ranking
+def test_funnel_cascade_lines():
+    log = []
+    _pipeline(swing_eod.build_rules("above")).scan(
+        _as_map([_ok(), _fails_above_d(), _fails_not_extended()]), "t0", log=log.append
+    )
+    assert log == [
+        "[swing_eod] AboveSMA(20,W+M): 3 → 3 (−0 required)",
+        "[swing_eod] AboveSMA(20,D): 3 → 2 (−1 required)",
+        "[swing_eod] NotExtended(8,D): 2 → 1 (−1 required)",
+        "[swing_eod] final: 1 candidatos",
+    ]
+
+
+# (d) ScanResult: campos de §5, price único, partial_bar, evidencia consistente (mismo precio 3 tf)
+def test_scanresult_fields_and_single_price_evidence():
+    sd = FakeSymbolData("AAA", price=105.0, daily_close=100.0,
+        smas={("D", 8): 100.0, ("D", 20): 100.0, ("W", 20): 102.0, ("M", 20): 103.0})
+    [res] = _pipeline(swing_eod.build_rules("above"), partial_bar=False).scan(
+        _as_map([sd]), as_of="2026-06-19T21:00:00Z"
+    )
+    assert res.strategy == "swing_eod"
+    assert res.ticker == "AAA"
+    assert res.direction == "long"
+    assert res.partial_bar is False
+    assert res.price == 105.0
+    assert res.as_of == "2026-06-19T21:00:00Z"
+    assert res.time_frames_evaluated == ["D", "W", "M"]   # orden canónico, no alfabético
+    assert res.rules_passed_count == 3
+    # evidencia internamente consistente: value·(1+distance_pct) == el precio único (105) en cada serie
+    for periods in res.sma_evidence.values():
+        for entry in periods.values():
+            assert entry["value"] * (1 + entry["distance_pct"]) == pytest.approx(105.0, abs=1e-9)
+
+
+# (c) build_position_snapshot se invoca UNA vez por símbolo
+def test_build_snapshot_called_once_per_symbol(monkeypatch):
+    import core.pipeline as pipeline_mod
+
+    calls = []
+    real = pipeline_mod.build_position_snapshot
+
+    def spy(sd, series, thresholds):
+        calls.append(sd.symbol.value)
+        return real(sd, series, thresholds)
+
+    monkeypatch.setattr(pipeline_mod, "build_position_snapshot", spy)
+    _pipeline([StubRule("R1")]).scan(_as_map([_passing("AAA", 100.0), _passing("BBB", 100.0)]), "t0")
+    assert sorted(calls) == ["AAA", "BBB"]
+    assert len(calls) == len(set(calls))  # exactamente una vez por símbolo
+
+
+# (backstop) pasa el gate (series ready) pero una SMA es degenerada (==0) → build_position_snapshot
+# levanta FeatureNotReady; el pipeline lo excluye+loguea sin crashear (no es el gate primario).
+def test_snapshot_backstop_excludes_degenerate_sma():
+    log = []
+    sd = FakeSymbolData("AAA", 102.0, 100.0,
+        {("D", 8): 100.0, ("D", 20): 0.0, ("W", 20): 100.0, ("M", 20): 100.0})  # D:20 SMA==0
+    results = _pipeline([StubRule("R1")]).scan(_as_map([sd]), "t0", log=log.append)
+    assert results == []
+    assert any("AAA" in line for line in log)  # excluido y logueado
+
+
+# (d) partial_bar de la estrategia se propaga al ScanResult (market_close=True vs swing_eod=False)
+def test_partial_bar_propagates_to_scanresult():
+    [res] = _pipeline(swing_eod.build_rules("above"), partial_bar=True).scan(
+        _as_map([_passing("AAA", 100.0)]), "t0"
+    )
+    assert res.partial_bar is True
+
+
+# (a) watchlist reproducible: mismo input → misma salida (tickers + orden)
+def test_results_reproducible_across_runs():
+    def run():
+        syms = [_passing("CCC", 98.0), _passing("AAA", 100.0), _passing("BBB", 100.0)]
+        results = _pipeline([StubRule("R1")], top_n=3).scan(_as_map(syms), "t0")
+        return [r.ticker for r in results]
+
+    # CCC (change≈0.0408) primero; AAA y BBB empatan en 0.02 → tie-break ticker asc
+    assert run() == ["CCC", "AAA", "BBB"]
+    assert run() == run()

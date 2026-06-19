@@ -221,7 +221,7 @@ Variante shorts (`*_short`): universo `swing_declines`, `direction: short` → l
 **Alcance:**
 - `scripts/explore_universe.py` sobre el CSV real: columnas, tipos, nulos, duplicados, tickers inválidos/no-US, rangos de price y volumen, conteo post-filtro.
 - Confirmar o ajustar los contratos de datos borrador con base en lo observado; actualizar este archivo.
-- `config/strategies.json`: sección `environments`, 4 estrategias con `direction`, `main_timeframe`, `timeframes`, `universe_filter`, `max_extension_pct`.
+- `config/strategies.json`: sección `environments`, 4 estrategias con `direction`, `main_timeframe`, `timeframes`, `universe_filter`, `max_extension_pct` *(esta última retirada luego en 6B/T5 — ADR-005, redundante con `bucket_thresholds.extended`)*.
 - `lean.json`: agregar `"parameters": {"env": "dev"}`.
 - `scripts/seed_object_store.sh`: soporte para CSVs datados + archivo a `processed/`.
 
@@ -308,27 +308,27 @@ Variante shorts (`*_short`): universo `swing_declines`, `direction: short` → l
 - ➡️ `NotExtended`, formateador de log y campos de `ScanResult`: **trasladados a Etapa 6B** (no se realizaron en E6)
 
 ## Etapa 6B — Snapshot único + reglas como filtros puros
-**Estado:** pendiente
+**Estado:** en progreso (T1–T7 implementadas y verdes — 141 passed; cierre pendiente de commit)
 **Objetivo:** una sola evaluación de posición precio↔SMA por símbolo·scan (snapshot único), reglas convertidas en filtros puros sobre buckets ya asignados, simétricas long/short sin duplicar reglas; cerrar las piezas pendientes de la capa de reglas
 **Depende de:** Etapa 6
 **Autoridad de diseño:** [ADR-005](.claude/decisions/ADR-005-snapshot-unico-y-reglas-como-filtros.md) (aprobado). Supersede D4 de E6.
 **Spec detallado:** [.claude/fase-1-desarrollo-local/etapa-06b.md](.claude/fase-1-desarrollo-local/etapa-06b.md)
 **Alcance:**
 - `core/features.py`: `build_position_snapshot(sd, series, thresholds)` (snapshot `{tf:{period:PositionResult}}`, 1×/símbolo·scan, frío en un punto), `snapshot_evidence` (proyección), `mirror_buckets`+`_MIRROR`+`SIDE_BY_DIRECTION` (simetría long/short).
-- `core/rules.py`: `AboveSMA`→`SMAPositionRule` side-aware con `evaluate(snapshot)` (sin `sd` ni `thresholds`); `NotExtended(period, tf, side)` factory **sin `max_pct`** (excluye `extended_above`; corte = `bucket_thresholds.extended` único) — supersede D4; formateador de log de filtrado.
+- `core/rules.py`: `SMAPositionRule` genérica side-aware con `evaluate(snapshot)` (sin `sd` ni `thresholds`), reemplaza a `AboveSMA` (eliminado — un solo símbolo de clase); `NotExtended(period, tf, side)` preset (constructor con nombre) **sin `max_pct`** (excluye `extended_above`; corte = `bucket_thresholds.extended` único) — supersede D4.
 - `config/strategies.json`: retirar `max_extension_pct` (redundante; sembrado en E3, sin consumidor).
-- `core/pipeline.py`: contrato mínimo de `ScanResult` (`rules_passed_count`, `sma_evidence` como proyección).
+- `core/pipeline.py`: contrato mínimo de `ScanResult` (`rules_passed_count`, `sma_evidence` como proyección) + formateadores del log de filtrado (`format_filter_line`/`format_final_line`).
 - Tests: snapshot (cálculo único, frío, series no-referenciadas), mirror (involución, `near` autoespejo), rule long/short, `NotExtended`, log literal.
 **Done when:**
-- [ ] `build_position_snapshot` computa cada serie 1×, propaga `FeatureNotReady`, ignora series declaradas-no-referenciadas; `snapshot_evidence` proyecta exacto
-- [ ] `mirror_buckets`: identidad/`near` autoespejo/involución/above→below/⊆BUCKETS/`side` inválido → error
-- [ ] `SMAPositionRule.evaluate(snapshot)`: 8 tests de T3 migrados + casos short; evidencia completa al fallar; `buckets_allowed` inválido revienta en construcción
-- [ ] `NotExtended` sin `max_pct` excluye el bucket favorable-extremo (ambos lados); segundo `extended` mueve el corte
-- [ ] `max_extension_pct` retirado de config + `storage/`; `grep` `.py` limpio; round-trip idéntico
-- [ ] Formateador reproduce literalmente las 4 líneas; `ScanResult` con campos nuevos; suite verde. Commit `[Etapa 6B] ...`
+- [x] `build_position_snapshot` computa cada serie 1×, propaga `FeatureNotReady`, ignora series declaradas-no-referenciadas; `snapshot_evidence` proyecta exacto *(T1)*
+- [x] `mirror_buckets`: identidad/`near` autoespejo/involución/above→below/⊆BUCKETS/`side` inválido → error *(T2)*
+- [x] `SMAPositionRule.evaluate(snapshot)`: 8 tests de T3 migrados + casos short; evidencia completa al fallar; `buckets_allowed` inválido revienta en construcción *(T3 — `AboveSMA` eliminado)*
+- [x] `NotExtended` sin `max_pct` excluye el bucket favorable-extremo (ambos lados); segundo `extended` mueve el corte *(T4)*
+- [x] `max_extension_pct` retirado de config + `storage/`; `grep` `.py` limpio; round-trip idéntico *(T5)*
+- [~] Formateador reproduce literalmente las 4 líneas; `ScanResult` con campos nuevos; suite verde (141 passed) — ✅ T6+T7; **falta el commit `[Etapa 6B]`** para cerrar la etapa
 
 ## Etapa 7 — ScanPipeline + estrategias + schedule
-**Estado:** pendiente
+**Estado:** completada (T1–T6, 2026-06-19) — 178 passed; backtest dev verificado (EXIT=0 ×2). Mecánica end-to-end demostrada: minute subscription + 4 pipelines + schedule + gate B + ranking + embudo + `ScanResult` con evidencia + reproducibilidad (watchlist IBM short byte-idéntica entre 2 corridas). **El literal "backtest ≥3 meses" se DIFIERE a Etapa 9** (decisión usuario): el harness dev solo tiene ~6 días de minute (SPY) y ≥3 meses multi-símbolo exige `lean data download` QC-pago (ADR-002, prerequisito de E9).
 **Objetivo:** las dos estrategias V1 corriendo end-to-end en un solo nodo y produciendo ScanResults
 **Depende de:** Etapa 6B
 **Spec detallado:** [.claude/fase-1-desarrollo-local/etapa-07.md](.claude/fase-1-desarrollo-local/etapa-07.md)
@@ -337,9 +337,9 @@ Variante shorts (`*_short`): universo `swing_declines`, `direction: short` → l
 - `strategies/swing_eod.py` y `strategies/market_close.py` como `StrategyConfig` declarativos (sin lógica nueva, solo composición de rules con su `buckets_allowed` canónico y `side`).
 - `main.py` completo: una instancia de pipeline por estrategia, ScheduledEvents desde config, símbolos no listos (warmup incompleto) o con serie fría excluidos y logueados (la exclusión por frío usa el `FeatureNotReady` que aflora en el builder).
 **Done when:**
-- [ ] `lean backtest` sobre ≥3 meses genera ScanResults reproducibles en fechas conocidas
-- [ ] `market_close` reporta OHLC parcial del día con `partial_bar=True`
-- [ ] Símbolos con warmup incompleto quedan excluidos y logueados
+- [~] `lean backtest` genera ScanResults **reproducibles** con evidencia por candidato (watchlist IBM short byte-idéntica entre 2 corridas, 2026-06-19). **El alcance ≥3 meses se difiere a Etapa 9** (data-limitado: ~6 días de minute en dev; ≥3 meses multi-símbolo = `lean data download` QC-pago, ADR-002)
+- [x] `market_close` reporta `partial_bar=True` (`market_close_short` True / `swing_eod_short` False sobre IBM, mismo símbolo·fecha); working bar **intradía vivo** sobre un candidato → Etapa 9 (IBM sin minute; SPY con minute está sobre SMAs, no pasa short)
+- [x] Símbolos con warmup incompleto (serie referenciada fría) quedan excluidos y logueados (FB por `M:20 fría`, gate B)
 
 ## Etapa 8 — OutputSink y notificación por entorno
 **Estado:** pendiente

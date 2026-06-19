@@ -6,6 +6,8 @@ from collections import deque
 from time import perf_counter
 
 import core
+from core.features import SIDE_BY_DIRECTION, resolve_bucket_thresholds
+from core.pipeline import ScanPipeline
 from core.symbol_data import SymbolData
 from core.timeframes import TIMEFRAMES, plan_warmup
 from core.universe import UniverseSpec
@@ -20,10 +22,12 @@ class Tradescanner(QCAlgorithm):
     manual (T2.2, D4; flag validate_warmup). Features y rules (Etapas 6+) llegan después."""
 
     def initialize(self):
-        # Ventana corta ≥2016 (D5): el valor está en la historia previa al start
-        # (M:200 ≈ 4221 barras diarias; SPY-zip arranca en 1998), no en la duración.
-        self.set_start_date(2016, 1, 4)
-        self.set_end_date(2016, 1, 15)
+        # Ventana 2013-10 (Etapa 7/T5): única con datos minute (SPY sample del repo LEAN).
+        # SPY ejercita el working_bar; AAPL/IBM/FB no tienen minute aquí → caen al fallback
+        # close("D") (C2). SPY M:200 no calienta del todo (~3970 barras pre-2013 < 4221) pero
+        # M:200 no la referencia ninguna rule. FB (IPO 2012) tiene M:20 frío → gate B lo excluye.
+        self.set_start_date(2013, 10, 7)
+        self.set_end_date(2013, 10, 11)
         self.set_cash(100000)
 
         # Config de negocio desde ObjectStore (key = ruta relativa bajo storage/).
@@ -75,9 +79,12 @@ class Tradescanner(QCAlgorithm):
         self._daily_received: dict[Symbol, int] = {}
         self._daily_consolidated: dict[Symbol, int] = {}
         for ticker in sorted(tickers):
+            # MINUTE (T5.1): habilita el working_bar intradía del consolidator diario. El
+            # warmup sigue siendo DAILY (set_warm_up más abajo); resolución de suscripción ⟂
+            # resolución de warmup (5A T3.9). El consolidator diario se cabla a esta suscripción.
             symbol = self.add_equity(
                 ticker,
-                Resolution.DAILY,
+                Resolution.MINUTE,
                 data_normalization_mode=DataNormalizationMode.SPLIT_ADJUSTED,
             ).symbol
             sd = SymbolData(symbol, self._requirements)
@@ -114,17 +121,35 @@ class Tradescanner(QCAlgorithm):
         spy = next((s for s in self.symbol_data if s.value == "SPY"), None)
         self.spy = spy or self.add_equity("SPY", Resolution.DAILY).symbol
 
-        # Un ScheduledEvent por estrategia; el callback SOLO loguea (reglas en Etapa 7)
-        # y va guardado contra warmup dentro de _scan_stub.
+        # T5.2/T5.3 — un ScanPipeline por estrategia (config=datos × strategies/=composición),
+        # resuelto en initialize() (D7.1): direction→side en un solo punto (D7.3), thresholds y
+        # rules ya construidas. Un ScheduledEvent por estrategia con el callback real (scan).
+        self.pipelines: dict[str, ScanPipeline] = {}
+        self._probe_done = False  # probe de emisión A.3: solo en el primer scan real
         for name, cfg in strategies_config.items():
+            composition = strategies.STRATEGIES.get(name)
+            if composition is None:
+                self.log(f"[{name}] sin StrategyConfig en STRATEGIES: omitida del scan")
+                continue
             time_rule = self._time_rule_for(cfg["schedule"])
             if time_rule is None:
                 self.log(f"schedule desconocido '{cfg['schedule']}' para '{name}': omitido")
                 continue
+            side = SIDE_BY_DIRECTION[cfg["direction"]]
+            self.pipelines[name] = ScanPipeline(
+                strategy_name=name,
+                direction=cfg["direction"],
+                side=side,
+                rules=composition.build_rules(side),
+                series=composition.series(side),
+                thresholds=resolve_bucket_thresholds(full_config, name),
+                top_n=top_n,
+                partial_bar=composition.partial_bar,
+            )
             self.schedule.on(
                 self.date_rules.every_day(self.spy),
                 time_rule,
-                lambda name=name: self._scan_stub(name),
+                lambda name=name: self._scan(name),
             )
 
         # T2.2 — Estrategia A (D4): warmup engine-managed (adoptada: gate 9/9 series
@@ -241,18 +266,20 @@ class Tradescanner(QCAlgorithm):
                 self.log(f"WARNING [warmup] gate: {mismatch}")
 
     def on_end_of_algorithm(self):
-        """Evidencia del criterio 1:1 (T2.1): cada barra de la suscripción (warmup +
-        runtime) terminó en el consolidator — emitida, o retenida como working bar."""
+        """Evidencia del feed→consolidator. Con suscripción minute (T5.1) la relación es N:1
+        (N barras minute → 1 barra diaria), así que el chequeo 1:1 estricto de 5B ya no aplica:
+        se reporta el conteo informativo (barras recibidas vs diarias consolidadas + working bar)."""
         for symbol, sd in self.symbol_data.items():
             received = self._daily_received[symbol]
             consolidated = self._daily_consolidated[symbol]
             working = sd.working_bar
-            pending = 1 if working is not None else 0
-            status = "1:1 OK" if received == consolidated + pending else "1:1 MISMATCH"
-            tail = f", working hasta {working.end_time}" if working is not None else ""
+            tail = (
+                f", working hasta {working.end_time}" if working is not None
+                else " (sin working bar)"
+            )
             self.log(
-                f"[{symbol.value}] feed daily→consolidator {status}: "
-                f"{received} recibidas, {consolidated} consolidadas{tail}"
+                f"[{symbol.value}] feed→consolidator: {received} barras recibidas "
+                f"(warmup daily + runtime minute), {consolidated} diarias consolidadas{tail}"
             )
 
     def _record_validation(
@@ -293,12 +320,50 @@ class Tradescanner(QCAlgorithm):
     def _count_consolidated(self, symbol: Symbol) -> None:
         self._daily_consolidated[symbol] += 1
 
-    def _scan_stub(self, name: str) -> None:
-        """Callback placeholder de scan (el pipeline real llega en Etapa 7). Guardado:
-        los ScheduledEvents también disparan durante el warmup con data histórica."""
+    def _scan(self, name: str) -> None:
+        """Callback real del ScheduledEvent (T5.3): corre el pipeline de la estrategia sobre
+        el estado caliente de los símbolos y loguea el embudo + nº de candidatos. Guardado
+        contra warmup: los ScheduledEvents también disparan con data histórica. La escritura a
+        archivo/notificación es Etapa 8 — aquí el ScanResult vive en memoria + log."""
         if self.is_warming_up:
             return
-        self.log(f"scan {name} @ {self.time}")
+        pipeline = self.pipelines.get(name)
+        if pipeline is None:
+            return
+        if not self._probe_done:
+            self._emit_probe()          # A.3: confirmar que "hoy" no está consolidado al scan
+            self._probe_done = True
+        results = pipeline.scan(self.symbol_data, self.utc_time, self.log)
+        # Watchlist visible y reproducible en el log: una línea por candidato con su
+        # evidencia (T6.2). La escritura a archivo/notificación es Etapa 8; aquí memoria + log.
+        for r in results:
+            self.log(
+                f"[{name}] candidato {r.ticker} {r.direction} "
+                f"price={r.price:.4f} partial_bar={r.partial_bar} "
+                f"passed={'|'.join(r.passed_rules)} "
+                f"evidence={json.dumps(r.sma_evidence, sort_keys=True)}"
+            )
+        self.log(f"[{name}] scan @ {self.utc_time}: {len(results)} candidatos")
+
+    def _emit_probe(self, ticker: str = "SPY") -> None:
+        """Probe de emisión (A.3): loguea working_bar vs close('D') de un símbolo en el primer
+        scan real. Esperado (timedelta(days=1)): la barra diaria de hoy NO está consolidada al
+        scan → working_bar = hoy y close('D') = ayer. Si coincidieran, LEAN emitiría al cierre y
+        habría que activar la contingencia de day_change (D7.6). T6 registra el hallazgo."""
+        symbol = next((s for s in self.symbol_data if s.value == ticker), None)
+        if symbol is None:
+            return
+        sd = self.symbol_data[symbol]
+        working = sd.working_bar
+        wb = f"close={working.close}, end_time={working.end_time}" if working is not None else "None"
+        try:
+            daily_close = sd.close("D")
+        except Exception:
+            daily_close = None
+        self.log(
+            f"[probe A.3] {ticker} @ {self.utc_time}: working_bar=({wb}); close('D')={daily_close} "
+            f"→ esperado working_bar=hoy, close('D')=ayer (hoy NO consolidado)"
+        )
 
     def _build_requirements(
         self, env_cfg: dict, strategies_config: dict

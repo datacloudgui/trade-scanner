@@ -24,6 +24,7 @@ from core.features import (
     _bucketize,
     _MIRROR,
     build_position_snapshot,
+    day_change_pct,
     mirror_buckets,
     position_vs_sma,
     reference_price,
@@ -125,22 +126,81 @@ def test_reference_price_casts_working_bar_close_to_float():
     assert isinstance(price, float)
 
 
+# ---------------------------------------------------------------------------
+# T2.1 (Etapa 7) — day_change_pct: (reference_price − close("D")) / close("D"),
+# score del ranking top_n. close("D")=ayer al scan (A.2); FeatureNotReady si el
+# cierre consolidado no está (AttributeError) o es 0.
+# ---------------------------------------------------------------------------
+
+class DayChangeStub:
+    """Stub para day_change_pct: `.close("D")` (cierre de ayer) y `.working_bar` (hoy).
+
+    `working_close=None` modela "sin working bar" (reference_price cae a close("D")).
+    `daily_raises=True` simula el cierre consolidado no disponible: barra consolidada
+    None → AttributeError al leer `.close`, como la API real de SymbolData.
+    """
+
+    def __init__(self, daily_close, working_close, daily_raises: bool = False):
+        self.symbol = "STUB"
+        self._daily_close = daily_close
+        self._daily_raises = daily_raises
+        self.working_bar = (
+            None if working_close is None else SimpleNamespace(close=working_close)
+        )
+
+    def close(self, tf: str) -> float:
+        assert tf == "D"  # day_change solo mira el cierre diario consolidado
+        if self._daily_raises:
+            raise AttributeError("'NoneType' object has no attribute 'close'")
+        return self._daily_close
+
+
+# (a) con working bar: (c1 − c0) / c0
+@pytest.mark.parametrize(
+    "c0, c1, expected",
+    [(100.0, 105.0, 0.05), (100.0, 95.0, -0.05), (100.0, 100.0, 0.0), (50.0, 60.0, 0.2)],
+)
+def test_day_change_with_working_bar(c0, c1, expected):
+    sd = DayChangeStub(daily_close=c0, working_close=c1)
+    assert day_change_pct(sd) == pytest.approx(expected, abs=1e-9)
+
+
+# (a) sin working bar → reference_price = close("D") ⇒ cambio 0 (degenerado documentado)
+def test_day_change_without_working_bar_is_zero():
+    sd = DayChangeStub(daily_close=100.0, working_close=None)
+    assert day_change_pct(sd) == 0.0
+
+
+# (b) cierre consolidado no disponible (AttributeError) → FeatureNotReady, antes de reference_price
+def test_day_change_missing_daily_close_raises():
+    sd = DayChangeStub(daily_close=None, working_close=105.0, daily_raises=True)
+    with pytest.raises(FeatureNotReady, match="no disponible"):
+        day_change_pct(sd)
+
+
+# (b) cierre consolidado == 0 → FeatureNotReady (sin base para el cambio; evita /0)
+def test_day_change_zero_daily_close_raises():
+    sd = DayChangeStub(daily_close=0.0, working_close=105.0)
+    with pytest.raises(FeatureNotReady, match="== 0"):
+        day_change_pct(sd)
+
+
 # --- T1.2 — position_vs_sma ---
 
 THRESHOLDS = {"near": 0.005, "mild": 0.03, "extended": 0.10}
 
 
 class StubSymbolData:
-    """Stub mínimo del criterio: .sma().current.value / .close() / .is_ready().
+    """Stub mínimo del nuevo contrato (T1.2): .sma().current.value / .is_ready().
 
-    Registra las llamadas para verificar que la feature lee la serie pedida
-    y nada más (regla L3: solo lectura vía la API de SymbolData).
+    El precio se INYECTA (A.1): `position_vs_sma` ya NO lee el cierre, así que `close()`
+    levanta AssertionError para blindar en runtime que la feature no lo toca. Registra
+    las llamadas para verificar que lee solo la serie pedida (regla L3: solo lectura).
     """
 
-    def __init__(self, sma_value: float, close_value: float, ready: bool = True):
+    def __init__(self, sma_value: float, ready: bool = True):
         self.symbol = "STUB"
         self._sma_value = sma_value
-        self._close_value = close_value
         self._ready = ready
         self.calls: list[tuple] = []
 
@@ -153,8 +213,9 @@ class StubSymbolData:
         return SimpleNamespace(current=SimpleNamespace(value=self._sma_value))
 
     def close(self, tf: str) -> float:
-        self.calls.append(("close", tf))
-        return self._close_value
+        raise AssertionError(
+            "position_vs_sma no debe leer close() tras T1.2 (precio inyectado)"
+        )
 
 
 def _stub_bucketize(monkeypatch, returns: str = "bucket_stub") -> list[tuple]:
@@ -169,43 +230,52 @@ def _stub_bucketize(monkeypatch, returns: str = "bucket_stub") -> list[tuple]:
     return calls
 
 
-# T1.2 — contrato de fríos: serie no ready → FeatureNotReady (sin tocar SMA ni close)
+# T1.2 — contrato de fríos: serie no ready → FeatureNotReady (corta antes de leer SMA)
 def test_cold_series_raises_feature_not_ready():
-    sd = StubSymbolData(sma_value=100.0, close_value=105.0, ready=False)
+    sd = StubSymbolData(sma_value=100.0, ready=False)
     with pytest.raises(FeatureNotReady, match="W:20"):
-        position_vs_sma(sd, "W", 20, THRESHOLDS)
-    assert ("close", "W") not in sd.calls  # corta antes de leer estado caliente
+        position_vs_sma(sd, "W", 20, THRESHOLDS, price=105.0)
+    assert sd.calls == [("is_ready", "W", 20)]  # corta tras is_ready, sin leer la SMA
 
 
 # T1.2 — contrato de fríos: SMA == 0 (distancia indefinida) → FeatureNotReady
 def test_zero_sma_raises_feature_not_ready():
-    sd = StubSymbolData(sma_value=0.0, close_value=105.0)
+    sd = StubSymbolData(sma_value=0.0)
     with pytest.raises(FeatureNotReady, match="D:8"):
-        position_vs_sma(sd, "D", 8, THRESHOLDS)
+        position_vs_sma(sd, "D", 8, THRESHOLDS, price=105.0)
 
 
-# T1.2 — distance_pct = (close - sma) / sma con tolerancia 1e-9; value = SMA usada
+# T1.2 (b) — la feature NO lee el cierre: el precio se inyecta (A.1). El stub levanta
+# si se llamara close(); además se verifica vía el registro de llamadas.
+def test_position_vs_sma_does_not_read_close(monkeypatch):
+    _stub_bucketize(monkeypatch)
+    sd = StubSymbolData(sma_value=100.0)
+    position_vs_sma(sd, "D", 20, THRESHOLDS, price=110.0)  # no levanta (no toca close)
+    assert all(call[0] != "close" for call in sd.calls)
+
+
+# T1.2 — distance_pct = (price - sma) / sma con tolerancia 1e-9; value = SMA usada
 @pytest.mark.parametrize(
-    "close, expected_distance",
+    "price, expected_distance",
     [(105.0, 0.05), (95.0, -0.05), (100.0, 0.0)],
 )
-def test_distance_pct_formula(monkeypatch, close, expected_distance):
+def test_distance_pct_formula(monkeypatch, price, expected_distance):
     _stub_bucketize(monkeypatch)
-    sd = StubSymbolData(sma_value=100.0, close_value=close)
-    result = position_vs_sma(sd, "D", 20, THRESHOLDS)
+    sd = StubSymbolData(sma_value=100.0)
+    result = position_vs_sma(sd, "D", 20, THRESHOLDS, price=price)
     assert result.distance_pct == pytest.approx(expected_distance, abs=1e-9)
-    assert result.value == 100.0  # la SMA usada, no el close
+    assert result.value == 100.0  # la SMA usada, no el precio
 
 
 # T1.2 — el bucket viene de _bucketize (con la distancia y los thresholds recibidos),
-# y la feature lee exactamente la serie (tf, period) pedida
+# y la feature lee exactamente la serie (tf, period) pedida (ya sin leer close)
 def test_delegates_bucket_and_reads_declared_series(monkeypatch):
     bucketize_calls = _stub_bucketize(monkeypatch, returns="above_mild")
-    sd = StubSymbolData(sma_value=200.0, close_value=204.0)
-    result = position_vs_sma(sd, "W", 20, THRESHOLDS)
+    sd = StubSymbolData(sma_value=200.0)
+    result = position_vs_sma(sd, "W", 20, THRESHOLDS, price=204.0)
     assert result == PositionResult(value=200.0, distance_pct=0.02, bucket="above_mild")
     assert bucketize_calls == [(pytest.approx(0.02, abs=1e-9), THRESHOLDS)]
-    assert sd.calls == [("is_ready", "W", 20), ("sma", "W", 20), ("close", "W")]
+    assert sd.calls == [("is_ready", "W", 20), ("sma", "W", 20)]  # ya NO ("close", "W")
 
 
 # --- T1.3 — _bucketize: tabla de 7 buckets, fronteras exactas y no-hardcodeo ---
@@ -215,9 +285,9 @@ EPS = 1e-12  # un ulp grande: inalcanzable vía división real, perfecto para fr
 
 
 # T1.3 — los 7 buckets (interiores) y los 6 cortes exactos, vía position_vs_sma
-# con SMA=100 (cierres elegidos para que (close-100)/100 caiga exacto en el corte)
+# con SMA=100 (precios elegidos para que (price-100)/100 caiga exacto en el corte)
 @pytest.mark.parametrize(
-    "close, expected_distance, expected_bucket",
+    "price, expected_distance, expected_bucket",
     [
         # interiores de los 7 buckets
         (112.0, 0.12, "extended_above"),
@@ -236,8 +306,8 @@ EPS = 1e-12  # un ulp grande: inalcanzable vía división real, perfecto para fr
         (90.0, -0.10, "extended_below"),   # −extended
     ],
 )
-def test_seven_buckets_and_six_exact_cuts(close, expected_distance, expected_bucket):
-    result = position_vs_sma(StubSymbolData(100.0, close), "D", 20, THRESHOLDS)
+def test_seven_buckets_and_six_exact_cuts(price, expected_distance, expected_bucket):
+    result = position_vs_sma(StubSymbolData(100.0), "D", 20, THRESHOLDS, price=price)
     assert result.bucket == expected_bucket
     assert result.distance_pct == pytest.approx(expected_distance, abs=1e-9)
 
@@ -247,7 +317,7 @@ CUSTOM_THRESHOLDS = {"near": 0.01, "mild": 0.05, "extended": 0.08}
 
 
 @pytest.mark.parametrize(
-    "close, default_bucket, custom_bucket",
+    "price, default_bucket, custom_bucket",
     [
         (109.0, "above_strong", "extended_above"),  # +9%: bajo 0.10, sobre 0.08
         (108.0, "above_strong", "extended_above"),  # corte exacto +extended custom
@@ -257,10 +327,10 @@ CUSTOM_THRESHOLDS = {"near": 0.01, "mild": 0.05, "extended": 0.08}
         (92.0, "below_strong", "extended_below"),   # corte exacto −extended custom
     ],
 )
-def test_second_threshold_set_moves_the_cuts(close, default_bucket, custom_bucket):
-    sd = StubSymbolData(100.0, close)
-    assert position_vs_sma(sd, "D", 20, THRESHOLDS).bucket == default_bucket
-    assert position_vs_sma(sd, "D", 20, CUSTOM_THRESHOLDS).bucket == custom_bucket
+def test_second_threshold_set_moves_the_cuts(price, default_bucket, custom_bucket):
+    sd = StubSymbolData(100.0)
+    assert position_vs_sma(sd, "D", 20, THRESHOLDS, price=price).bucket == default_bucket
+    assert position_vs_sma(sd, "D", 20, CUSTOM_THRESHOLDS, price=price).bucket == custom_bucket
 
 
 # T1.3 — ownership de cada frontera, directo sobre _bucketize: el valor exacto cae
@@ -392,14 +462,16 @@ def test_resolve_override_can_trigger_validation():
 class MultiSeriesStub:
     """SymbolData sintético multi-(tf,period) para el builder del snapshot.
 
-    `close(tf)` depende solo del tf (como la API real); `sma`/`is_ready` son
-    per-(tf,period). Registra cada lectura para verificar que el builder computa
-    una serie a lo sumo una vez y que NO toca series fuera de las pedidas.
+    `working_bar.close` es el precio único "ahora" que el builder inyecta a las 3 SMAs
+    (A.1/A.2: `reference_price` lo lee una vez); `sma`/`is_ready` son per-(tf,period).
+    `close()` levanta: con working bar presente el fallback de reference_price no se usa.
+    Registra cada lectura para verificar que el builder computa una serie a lo sumo una
+    vez y que NO toca series fuera de las pedidas.
     """
 
-    def __init__(self, closes: dict, smas: dict, cold=frozenset()):
+    def __init__(self, price: float, smas: dict, cold=frozenset()):
         self.symbol = "STUB"
-        self._closes = closes          # {tf: close_value}
+        self.working_bar = SimpleNamespace(close=price)  # precio único "ahora"
         self._smas = smas              # {(tf, period): sma_value}
         self._cold = set(cold)         # {(tf, period)} not ready
         self.calls: list[tuple] = []
@@ -413,24 +485,26 @@ class MultiSeriesStub:
         return SimpleNamespace(current=SimpleNamespace(value=self._smas[(tf, period)]))
 
     def close(self, tf):
-        self.calls.append(("close", tf))
-        return self._closes[tf]
+        raise AssertionError(
+            "build_position_snapshot no debe leer close() con working bar presente"
+        )
 
 
-# (a) forma exacta {tf:{period:PositionResult}} con value/distance_pct/bucket esperados
+# (a) forma exacta {tf:{period:PositionResult}} con value/distance_pct/bucket esperados,
+# con UN solo precio (working bar) comparado contra las 3 SMAs (A.1)
 def test_snapshot_shape_and_values():
     sd = MultiSeriesStub(
-        closes={"W": 105.0, "M": 102.0, "D": 101.0},
-        smas={("W", 20): 100.0, ("M", 20): 100.0, ("D", 8): 100.0},
+        price=105.0,
+        smas={("W", 20): 100.0, ("M", 20): 105.0, ("D", 8): 120.0},
     )
     snapshot = build_position_snapshot(sd, [("W", 20), ("M", 20), ("D", 8)], THRESHOLDS)
 
     assert set(snapshot) == {"W", "M", "D"}
     assert set(snapshot["W"]) == {20} and set(snapshot["M"]) == {20} and set(snapshot["D"]) == {8}
     expected = {
-        ("W", 20): (100.0, 0.05, "above_strong"),
-        ("M", 20): (100.0, 0.02, "above_mild"),
-        ("D", 8): (100.0, 0.01, "above_mild"),
+        ("W", 20): (100.0, 0.05, "above_strong"),    # 105 vs 100
+        ("M", 20): (105.0, 0.0, "near"),             # 105 vs 105
+        ("D", 8): (120.0, -0.125, "extended_below"),  # 105 vs 120
     }
     for (tf, period), (value, dist, bucket) in expected.items():
         pos = snapshot[tf][period]
@@ -440,27 +514,53 @@ def test_snapshot_shape_and_values():
         assert pos.bucket == bucket
 
 
-# (a) position_vs_sma se invoca UNA vez por serie, con args correctos y en orden
-def test_each_series_computed_exactly_once(monkeypatch):
-    calls: list[tuple] = []
+# (c) precio único: las 3 SMAs se comparan contra el MISMO precio (working bar) y la
+# evidencia es internamente consistente — value·(1+distance_pct) reconstruye el precio.
+def test_snapshot_uses_single_price_consistently():
+    price = 105.0
+    sd = MultiSeriesStub(
+        price=price,
+        smas={("W", 20): 100.0, ("M", 20): 105.0, ("D", 8): 120.0},
+    )
+    snapshot = build_position_snapshot(sd, [("W", 20), ("M", 20), ("D", 8)], THRESHOLDS)
+    for periods in snapshot.values():
+        for pos in periods.values():
+            assert pos.value * (1 + pos.distance_pct) == pytest.approx(price, abs=1e-9)
 
-    def spy(sd, tf, period, thresholds):
-        calls.append((sd, tf, period, thresholds))
+
+# (a)+(c) position_vs_sma se invoca UNA vez por serie, con el MISMO precio inyectado, y
+# reference_price se computa UNA sola vez por símbolo (precio único, A.2)
+def test_each_series_computed_once_with_single_price(monkeypatch):
+    calls: list[tuple] = []
+    ref_calls: list = []
+
+    def spy(sd, tf, period, thresholds, price):
+        calls.append((sd, tf, period, thresholds, price))
         return f"pos:{tf}:{period}"  # sentinela: prueba el agrupamiento sin recomputar
 
+    def ref_spy(sd):
+        ref_calls.append(sd)
+        return 42.0  # precio único
+
     monkeypatch.setattr("core.features.position_vs_sma", spy)
+    monkeypatch.setattr("core.features.reference_price", ref_spy)
     sd = object()
     series = [("W", 20), ("M", 20), ("D", 8)]
     snapshot = build_position_snapshot(sd, series, THRESHOLDS)
 
     assert snapshot == {"W": {20: "pos:W:20"}, "M": {20: "pos:M:20"}, "D": {8: "pos:D:8"}}
-    assert calls == [(sd, "W", 20, THRESHOLDS), (sd, "M", 20, THRESHOLDS), (sd, "D", 8, THRESHOLDS)]
+    assert ref_calls == [sd]  # reference_price 1× por símbolo
+    assert calls == [
+        (sd, "W", 20, THRESHOLDS, 42.0),
+        (sd, "M", 20, THRESHOLDS, 42.0),
+        (sd, "D", 8, THRESHOLDS, 42.0),
+    ]
 
 
 # (a) dos periods sobre el MISMO tf anidan bajo la misma clave tf (dict anidado plano)
 def test_multiple_periods_same_tf_nest_under_one_tf_key():
     sd = MultiSeriesStub(
-        closes={"D": 101.0},
+        price=101.0,
         smas={("D", 8): 100.0, ("D", 20): 100.0},
     )
     snapshot = build_position_snapshot(sd, [("D", 8), ("D", 20)], THRESHOLDS)
@@ -471,7 +571,7 @@ def test_multiple_periods_same_tf_nest_under_one_tf_key():
 # (b) serie fría en `series` → FeatureNotReady que DETIENE la construcción (símbolo+serie)
 def test_cold_series_halts_and_propagates():
     sd = MultiSeriesStub(
-        closes={"W": 105.0, "M": 102.0},
+        price=105.0,
         smas={("W", 20): 100.0, ("M", 20): 100.0},
         cold={("W", 20)},
     )
@@ -486,7 +586,7 @@ def test_unreferenced_declared_series_not_computed_nor_excluding():
     # ("M",200) existe en el stub (declarada) y está FRÍA: si el builder la computara,
     # levantaría FeatureNotReady. Como NO está en `series`, ni se mira ni rompe el snapshot.
     sd = MultiSeriesStub(
-        closes={"W": 105.0, "M": 102.0},
+        price=105.0,
         smas={("W", 20): 100.0, ("M", 20): 100.0, ("M", 200): 0.0},
         cold={("M", 200)},
     )
@@ -564,16 +664,16 @@ def test_snapshot_evidence_multiple_periods_same_tf():
 # como evidencia (la construcción inline de la vieja AboveSMA se reemplazó por snapshot_evidence)
 def test_snapshot_evidence_reproduces_builder_snapshot_schema():
     sd = MultiSeriesStub(
-        closes={"W": 105.0, "M": 102.0},
-        smas={("W", 20): 100.0, ("M", 20): 100.0},
+        price=105.0,  # precio único contra ambas SMAs (A.1)
+        smas={("W", 20): 100.0, ("M", 20): 105.0},
     )
     snap = build_position_snapshot(sd, [("W", 20), ("M", 20)], THRESHOLDS)
     evidence = snapshot_evidence(snap, [("W", 20), ("M", 20)])
     _assert_evidence(
         evidence,
         {
-            "W": {20: (100.0, 0.05, "above_strong")},
-            "M": {20: (100.0, 0.02, "above_mild")},
+            "W": {20: (100.0, 0.05, "above_strong")},  # 105 vs 100
+            "M": {20: (105.0, 0.0, "near")},           # 105 vs 105
         },
     )
 

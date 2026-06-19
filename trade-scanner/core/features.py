@@ -108,20 +108,53 @@ def reference_price(sd: "SymbolData") -> float:
     return sd.close("D")
 
 
-def position_vs_sma(
-    sd: "SymbolData", tf: str, period: int, thresholds: dict[str, float]
-) -> PositionResult:
-    """Posición del cierre consolidado de `tf` respecto a su SMA(period).
+def day_change_pct(sd: "SymbolData") -> float:
+    """Cambio relativo de hoy respecto al cierre consolidado — score del ranking top_n.
 
-    Solo lee estado vía la API de SymbolData (`is_ready`/`sma`/`close`, D3);
-    float() normaliza el decimal de C# a float de Python en la frontera L2→L3.
+    `(reference_price(sd) − sd.close("D")) / sd.close("D")`. Depende de A.2: al scan la barra
+    de hoy NO está consolidada, así que `sd.close("D")` es el cierre de AYER y el numerador
+    compara hoy (working bar) vs ayer — sin necesitar un `previous_close` en L2 (D7.6 borra esa
+    adición). El pipeline rankea `desc` para long (gainers) y `asc` para short (decliners).
+
+    Sin working bar, `reference_price` cae a `close("D")` ⇒ cambio 0 (sesión sin datos nuevos,
+    degenerado documentado). Contingencia D7.6: si T6 revelara que la diaria de hoy SÍ se
+    consolida al scan, `close("D")` sería hoy → cambio 0; ahí se añadiría un `previous_close`
+    (RollingWindow de 2). No se implementa salvo que la verificación lo exija.
+
+    `FeatureNotReady` si el cierre consolidado no está disponible (barra consolidada None →
+    `AttributeError` al leer; backstop — el gate B de T4 ya excluye estos símbolos antes) o
+    es 0 (sin base para el cambio). L2 queda intacto: no hay accesor nuevo.
+    """
+    try:
+        prev_close = sd.close("D")
+    except AttributeError as exc:
+        raise FeatureNotReady(
+            f"{sd.symbol}: cierre diario consolidado no disponible (day_change)"
+        ) from exc
+    if prev_close == 0:
+        raise FeatureNotReady(
+            f"{sd.symbol}: cierre diario consolidado == 0, day_change indefinido"
+        )
+    return (reference_price(sd) - prev_close) / prev_close
+
+
+def position_vs_sma(
+    sd: "SymbolData", tf: str, period: int, thresholds: dict[str, float], price: float
+) -> PositionResult:
+    """Posición de `price` (precio único "ahora") respecto a la SMA(period) de `tf`.
+
+    `price` se INYECTA, no se lee aquí (A.1): un solo precio (reference_price) se
+    compara contra las SMAs de los 3 timeframes — la fuente del precio la decide el
+    caller (build_position_snapshot) una vez por símbolo, no esta función por-tf. Solo
+    lee la SMA vía la API de SymbolData (`is_ready`/`sma`, D3); float() normaliza el
+    decimal de C# a float de Python en la frontera L2→L3.
     """
     if not sd.is_ready(tf, period):
         raise FeatureNotReady(f"{sd.symbol}: SMA {tf}:{period} fría (is_ready=False)")
     sma = float(sd.sma(tf, period).current.value)
     if sma == 0:
         raise FeatureNotReady(f"{sd.symbol}: SMA {tf}:{period} == 0, distancia indefinida")
-    distance_pct = (float(sd.close(tf)) - sma) / sma
+    distance_pct = (price - sma) / sma
     return PositionResult(
         value=sma,
         distance_pct=distance_pct,
@@ -174,10 +207,15 @@ def build_position_snapshot(
 
     Frío (D6B.3): la primera serie que lance `FeatureNotReady` se propaga y detiene la
     construcción (no se silencia); la exclusión del scan + log es de Etapa 7.
+
+    Precio único (A.1/A.2): `reference_price(sd)` se computa **una vez** por símbolo y se
+    inyecta a cada `position_vs_sma`, así las 3 SMAs se comparan contra el mismo precio
+    "ahora" (working bar) y la evidencia queda internamente consistente.
     """
+    price = reference_price(sd)
     snapshot: dict[str, dict[int, PositionResult]] = {}
     for tf, period in series:
-        snapshot.setdefault(tf, {})[period] = position_vs_sma(sd, tf, period, thresholds)
+        snapshot.setdefault(tf, {})[period] = position_vs_sma(sd, tf, period, thresholds, price)
     return snapshot
 
 

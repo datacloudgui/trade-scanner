@@ -1,6 +1,6 @@
 # SPECS — Screener de Acciones sobre LEAN
 
-**Versión:** 0.1 (V1) · **Fecha:** 2026-06-14 · **Estado:** en desarrollo — Etapas 1–5A completadas; 5B/6 en progreso (rules rediseñadas en 6B, ADR-005)
+**Versión:** 0.1 (V1) · **Fecha:** 2026-06-18 · **Estado:** en desarrollo — Etapas 1–5A y 6 completadas; 6B en cierre (capa de reglas rediseñada — ADR-005: snapshot único + reglas como filtros puros); 5B en progreso; **7 completada** (T1–T6, 2026-06-19: pipeline end-to-end + composición declarativa + minute subscription + schedule; backtest dev reproducible con evidencia por candidato. El backtest a escala ≥3 meses se difiere a Etapa 9 por límite de datos minute — decisión usuario)
 
 ---
 
