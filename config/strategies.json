@@ -23,8 +23,7 @@
       "main_timeframe": "W",
       "timeframes": { "D": [8, 20, 200], "W": [8, 20, 200], "M": [8, 20] },
       "schedule": "after_close",
-      "universe_filter": "avg_vol_5d > 1e6 and price > 5",
-      "max_extension_pct": 0.10
+      "universe_filter": "avg_vol_5d > 1e6 and price > 5"
     },
     "swing_eod_short": {
       "universe": "swing_declines",
@@ -32,8 +31,7 @@
       "main_timeframe": "W",
       "timeframes": { "D": [8, 20, 200], "W": [8, 20, 200], "M": [8, 20] },
       "schedule": "after_close",
-      "universe_filter": "avg_vol_5d > 1e6 and price > 5",
-      "max_extension_pct": 0.10
+      "universe_filter": "avg_vol_5d > 1e6 and price > 5"
     },
     "market_close": {
       "universe": "swing_advances",
@@ -41,8 +39,7 @@
       "main_timeframe": "W",
       "timeframes": { "D": [8, 20, 200], "W": [8, 20, 200], "M": [8, 20] },
       "schedule": "before_close_30m",
-      "universe_filter": "avg_vol_5d > 1e6 and price > 5",
-      "max_extension_pct": 0.10
+      "universe_filter": "avg_vol_5d > 1e6 and price > 5"
     },
     "market_close_short": {
       "universe": "swing_declines",
@@ -50,8 +47,7 @@
       "main_timeframe": "W",
       "timeframes": { "D": [8, 20, 200], "W": [8, 20, 200], "M": [8, 20] },
       "schedule": "before_close_30m",
-      "universe_filter": "avg_vol_5d > 1e6 and price > 5",
-      "max_extension_pct": 0.10
+      "universe_filter": "avg_vol_5d > 1e6 and price > 5"
     }
   }
 }

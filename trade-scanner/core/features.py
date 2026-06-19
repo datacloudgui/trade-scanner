@@ -93,6 +93,21 @@ class PositionResult:
         object.__setattr__(self, "side", "above" if self.distance_pct >= 0 else "below")
 
 
+def reference_price(sd: "SymbolData") -> float:
+    """Precio único "ahora" del símbolo: working bar si existe, si no el cierre diario.
+
+    Fuente única del precio para snapshot, ranking y evidencia (A.2): con suscripción
+    minute la barra diaria de hoy no se consolida hasta la sesión siguiente, así que
+    "hoy" solo vive en el working bar. Sin working bar (premercado / día sin trades, C2)
+    cae al último cierre consolidado (= ayer) y el símbolo se sigue escaneando.
+    float() normaliza el decimal de C# del working bar en la frontera L2→L3.
+    """
+    working = sd.working_bar
+    if working is not None:
+        return float(working.close)
+    return sd.close("D")
+
+
 def position_vs_sma(
     sd: "SymbolData", tf: str, period: int, thresholds: dict[str, float]
 ) -> PositionResult:

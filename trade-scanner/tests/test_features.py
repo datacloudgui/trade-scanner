@@ -26,6 +26,7 @@ from core.features import (
     build_position_snapshot,
     mirror_buckets,
     position_vs_sma,
+    reference_price,
     resolve_bucket_thresholds,
     snapshot_evidence,
 )
@@ -71,6 +72,57 @@ def test_frozen_rejects_mutation():
     result = PositionResult(value=100.0, distance_pct=0.02, bucket="above_mild")
     with pytest.raises(dataclasses.FrozenInstanceError):
         result.bucket = "near"
+
+
+# ---------------------------------------------------------------------------
+# T1.1 (Etapa 7) — reference_price: precio único "ahora" = working bar, o cierre
+# diario consolidado (= ayer) como fallback sin working bar (premercado, C2).
+# ---------------------------------------------------------------------------
+
+class ReferencePriceStub:
+    """Stub mínimo del criterio: `.working_bar` (con `.close`) y `.close("D")`.
+
+    `working_close=None` modela "sin working bar" (premercado / día sin trades).
+    Registra las llamadas a `close` para verificar que el cierre diario solo se
+    consulta en el fallback (no cuando hay working bar).
+    """
+
+    def __init__(self, working_close, daily_close):
+        self.symbol = "STUB"
+        self.working_bar = (
+            None if working_close is None else SimpleNamespace(close=working_close)
+        )
+        self._daily_close = daily_close
+        self.calls: list[str] = []
+
+    def close(self, tf: str):
+        self.calls.append(tf)
+        return self._daily_close
+
+
+# (a) hay working bar → usa working_bar.close y NO consulta el cierre diario
+def test_reference_price_uses_working_bar_when_present():
+    sd = ReferencePriceStub(working_close=104.5, daily_close=100.0)
+    price = reference_price(sd)
+    assert price == 104.5
+    assert isinstance(price, float)
+    assert sd.calls == []  # con working bar no toca el cierre consolidado
+
+
+# (a) sin working bar (None) → fallback al cierre diario consolidado (= ayer, C2)
+def test_reference_price_falls_back_to_daily_close_without_working_bar():
+    sd = ReferencePriceStub(working_close=None, daily_close=100.0)
+    price = reference_price(sd)
+    assert price == 100.0
+    assert sd.calls == ["D"]  # leyó el cierre del timeframe diario
+
+
+# float() normaliza el decimal de C# del working bar (int → float prueba el cast)
+def test_reference_price_casts_working_bar_close_to_float():
+    sd = ReferencePriceStub(working_close=99, daily_close=100.0)
+    price = reference_price(sd)
+    assert price == 99.0
+    assert isinstance(price, float)
 
 
 # --- T1.2 — position_vs_sma ---

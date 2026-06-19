@@ -142,7 +142,7 @@ Una fila/objeto por candidato; serializa a CSV y JSON.
 | `passed_rules`          | pipe-separated  | array of string  | Reglas que pasaron (ej. `AboveSMA20\|NotExtended`)               |
 | `rules_passed_count`    | int             | int              | Conteo de reglas que pasaron; usado como score de ranking        |
 
-Ejemplo `sma_evidence` (clave `distance_pct` y `bucket` añadidos en Etapa 6; proyección del snapshot por símbolo·scan, Etapa 6B; `distance_pct` es fracción, no porcentaje):
+Ejemplo `sma_evidence` — proyección del snapshot único (Etapa 6B), no un recompute; `distance_pct` y `bucket` se añadieron en Etapa 6 y `distance_pct` es fracción, no porcentaje:
 ```json
 {
   "D": {"20": {"value": 150.20, "distance_pct": 0.0231, "bucket": "above_mild"}},
@@ -331,6 +331,7 @@ Variante shorts (`*_short`): universo `swing_declines`, `direction: short` → l
 **Estado:** pendiente
 **Objetivo:** las dos estrategias V1 corriendo end-to-end en un solo nodo y produciendo ScanResults
 **Depende de:** Etapa 6B
+**Spec detallado:** [.claude/fase-1-desarrollo-local/etapa-07.md](.claude/fase-1-desarrollo-local/etapa-07.md)
 **Alcance:**
 - `core/pipeline.py`: por símbolo construye el **snapshot único** (`build_position_snapshot`, 6B) con la unión de `series` de la estrategia y los thresholds resueltos en `initialize()`; luego universo → ranking top_n → reglas (filtros sobre el snapshot) → `ScanResult`. Resuelve `direction`→`side` (vía `SIDE_BY_DIRECTION`) en un solo punto al componer las rules.
 - `strategies/swing_eod.py` y `strategies/market_close.py` como `StrategyConfig` declarativos (sin lógica nueva, solo composición de rules con su `buckets_allowed` canónico y `side`).

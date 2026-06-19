@@ -33,7 +33,7 @@ Una sola clase `SMAPositionRule` reemplaza `AboveSMA` y sirve de base a `NotExte
 
 ### D6B.6 — `NotExtended` sin `max_pct` (supersede D4)
 
-`NotExtended` deja de ser una clase con umbral propio: pasa a ser una **factory** que construye `SMAPositionRule(period, [tf], buckets_allowed=BUCKETS − {extended_above}, side, label="NotExtended")`. "No extendido" = "el bucket favorable-extremo está excluido"; el corte que define "extremo" es el `bucket_thresholds.extended` **único** de la estrategia (ya aplicado al bucketizar el snapshot). **Obsoleto de D4:** el parámetro `max_pct` y la inyección de `thresholds["extended"]` por-regla. **Se conserva de D4:** que `NotExtended` es composición (no subclase).
+`NotExtended` deja de ser una clase con umbral propio: pasa a ser un **constructor con nombre (preset)** que arma `SMAPositionRule(period, [tf], buckets_allowed=BUCKETS − {extended_above}, side, label="NotExtended")`. (Redacción: se evita "factory" para que la coherencia con D-T3.2.1 sea obvia — `AboveSMA` se eliminó por ser un *alias* vacío; `NotExtended` se conserva porque **encapsula un concepto** (qué buckets son "extendido"), no porque precargue un argumento.) "No extendido" = "el bucket favorable-extremo está excluido"; el corte que define "extremo" es el `bucket_thresholds.extended` **único** de la estrategia (ya aplicado al bucketizar el snapshot). **Obsoleto de D4:** el parámetro `max_pct` y la inyección de `thresholds["extended"]` por-regla. **Se conserva de D4:** que `NotExtended` es composición (no subclase).
 
 ### D6B.7 — Evidencia como proyección del snapshot
 
@@ -98,7 +98,7 @@ Redundante con `bucket_thresholds.extended` (hoy ambos `0.10` en las 4 estrategi
 
 ### T4 — `NotExtended` rediseñada (factory sin `max_pct`) (L4, `core/rules.py`) — **supersede D4**
 
-- **T4.1 (FABLE xhigh)** — `NotExtended(period, tf, side, required=True)`: factory que retorna `SMAPositionRule(period, [tf], buckets_allowed=BUCKETS − {"extended_above"}, side, required, label="NotExtended")`. **Sin `max_pct`.** `name == NotExtended(8,D)`.
+- **T4.1 (FABLE xhigh)** ✅ *(implementada 2026-06-18 — ver `etapa-06b-t4-decisiones-y-pendientes.md`)* — `NotExtended(period, tf, side, required=True)`: constructor con nombre (preset) que retorna `SMAPositionRule(period, [tf], buckets_allowed=BUCKETS − {"extended_above"}, side, required, label="NotExtended")`. **Sin `max_pct`.** `name == NotExtended(8,D)`.
 
 **Criterio de aceptación:**
 - (a) Largo: falla cuando el bucket es `extended_above` (`distance_pct ≥ bucket_thresholds.extended`); pasa en `above_strong` justo por debajo del corte `extended`.
@@ -109,7 +109,7 @@ Redundante con `bucket_thresholds.extended` (hoy ambos `0.10` en las 4 estrategi
 
 ### T5 — Retirar `max_extension_pct` de la config (`config/strategies.json`)
 
-- **T5.1** — Eliminar la clave `max_extension_pct` de los 4 bloques de estrategia. Verificar que viaja (su ausencia) a `storage/config/strategies.json` vía `seed_object_store.sh` (sin cambio de script). Anotar trazabilidad: origen Etapa 3 (`64a39cd`), sin consumidor en código.
+- **T5.1** ✅ *(implementada 2026-06-18 — ver `etapa-06b-t5-decisiones-y-pendientes.md`)* — Eliminar la clave `max_extension_pct` de los 4 bloques de estrategia. Verificar que viaja (su ausencia) a `storage/config/strategies.json` vía `seed_object_store.sh` (sin cambio de script). Anotar trazabilidad: origen Etapa 3 (`64a39cd`), sin consumidor en código.
 
 **Criterio de aceptación:**
 - (a) `grep -rn "max_extension_pct" --include="*.py"` vacío (ya lo está) y la clave ausente en `config/strategies.json` y, tras el seed, en `storage/config/strategies.json`.
@@ -118,7 +118,7 @@ Redundante con `bucket_thresholds.extended` (hoy ambos `0.10` en las 4 estrategi
 
 ### T6 — Formateador del log de filtrado (portado de Etapa 6/T5, sin cambios de diseño)
 
-- **T6.1** — Función pura `format_filter_line(strategy, rule_name, n_in, n_out, kind) -> str` → `[<strategy>] <rule_name>: <n_in> → <n_out> (−<dropped> <kind>)`; `format_final_line(strategy, n) -> str` → `[<strategy>] final: <n> candidatos`. `kind ∈ {"required","optional"}`. **No** ejecuta filtrado (Etapa 7); solo formatea contadores. Ubicación: `core/rules.py` o `core/pipeline.py` (decidir al implementar; preferencia `pipeline.py` por cercanía al filtrado de E7).
+- **T6.1** ✅ *(implementada 2026-06-18 — ver `etapa-06b-t6-decisiones-y-pendientes.md`)* — Función pura `format_filter_line(strategy, rule_name, n_in, n_out, kind) -> str` → `[<strategy>] <rule_name>: <n_in> → <n_out> (−<dropped> <kind>)`; `format_final_line(strategy, n) -> str` → `[<strategy>] final: <n> candidatos`. `kind ∈ {"required","optional"}`. **No** ejecuta filtrado (Etapa 7); solo formatea contadores. **Ubicación decidida: `core/pipeline.py`** (el log de embudo es del orquestador, no de la rule; `rules.py` queda como L4 puro de filtros). Símbolos exactos: flecha U+2192, signo menos U+2212.
 
 **Criterio de aceptación:** test que reproduce **literalmente** las 4 líneas a partir de contadores:
 ```
@@ -130,8 +130,8 @@ Redundante con `bucket_thresholds.extended` (hoy ambos `0.10` en las 4 estrategi
 
 ### T7 — `ScanResult`: campos nuevos + reconciliación §5 (portado de Etapa 6/T6)
 
-- **T7.1** — Crear el dataclass mínimo `ScanResult` en `core/pipeline.py` (solo contrato, sin lógica de llenado — eso es Etapa 7) con, al menos: `rules_passed_count: int = 0` y `sma_evidence: dict = field(default_factory=dict)`, forma `{tf:{period:{value,distance_pct,bucket}}}`. Documentar que `sma_evidence` es **proyección del snapshot** (`snapshot_evidence` sobre la unión de series), no un recompute.
-- **T7.2** — Verificar que PLAN.md §5 ya usa `distance_pct` + `bucket` (reconciliado en E6); alinear la nota del ejemplo a "proyección del snapshot único (Etapa 6B)".
+- **T7.1** ✅ *(implementada 2026-06-18 — ver `etapa-06b-t7-decisiones-y-pendientes.md`)* — Crear el dataclass mínimo `ScanResult` en `core/pipeline.py` (solo contrato, sin lógica de llenado — eso es Etapa 7) con, al menos: `rules_passed_count: int = 0` y `sma_evidence: dict = field(default_factory=dict)`, forma `{tf:{period:{value,distance_pct,bucket}}}`. Documentar que `sma_evidence` es **proyección del snapshot** (`snapshot_evidence` sobre la unión de series), no un recompute. **Decisión: contrato mínimo (solo los 2 campos nuevos); E7 añade el resto de la fila de §5.**
+- **T7.2** ✅ *(2026-06-18)* — Verificar que PLAN.md §5 ya usa `distance_pct` + `bucket` (reconciliado en E6: confirmado, línea 141 + ejemplo); alinear la nota del ejemplo a "proyección del snapshot único (Etapa 6B)".
 
 **Criterio de aceptación:** test de construcción que confirma los campos nuevos con sus defaults; nota de §5 de PLAN.md alineada. `run_tests.sh` verde.
 
@@ -175,11 +175,11 @@ Redundante con `bucket_thresholds.extended` (hoy ambos `0.10` en las 4 estrategi
 - [x] `build_position_snapshot` computa cada serie **una sola vez**, propaga `FeatureNotReady` en la primera serie fría, y **no** computa ni excluye por series declaradas-pero-no-referenciadas; `snapshot_evidence` proyecta el esquema exacto. Tests verdes — `bash scripts/run_tests.sh`. *(T1.1+T1.2 — 112 passed, 2026-06-14)*
 - [x] `mirror_buckets` verifica identidad (above), `near` autoespejo, involución, above→below, resultado ⊆ `BUCKETS`, `side` inválido → `ValueError`. Tests verdes. *(T2.1 — 126 passed, 2026-06-14)*
 - [x] `SMAPositionRule` con `evaluate(snapshot)`: los 8 tests de T3 migrados + casos short (mirror) verdes; evidencia completa aun al fallar; `buckets_allowed` inválido revienta en construcción; `evaluate` no toca `FeatureNotReady`. *(T3.1–T3.4 — `AboveSMA` eliminado; 129 passed, 2026-06-14)*
-- [ ] `NotExtended` (sin `max_pct`) excluye el bucket favorable-extremo en ambos lados; un segundo `bucket_thresholds.extended` mueve el corte; evidencia coherente. Tests verdes.
-- [ ] `max_extension_pct` retirado de `config/strategies.json` y de `storage/` tras el seed; `grep` en `.py` limpio; round-trip idéntico; `resolve_bucket_thresholds` intacto.
-- [ ] Formateador reproduce **literalmente** las 4 líneas del ejemplo.
-- [ ] `ScanResult` (contrato mínimo en `core/pipeline.py`) con `rules_passed_count` + `sma_evidence` (documentado como proyección del snapshot); §5 de PLAN.md alineada.
-- [ ] **Cero código muerto:** `grep` de `evaluate(sd`, `position_vs_sma` (en `rules.py`), `max_extension_pct` (en `.py`/config) y de un segundo símbolo de clase de regla → todos vacíos; `StubSymbolData`/test de frío reubicados a `test_features.py`; sin tests saltados ni stubs sin uso.
+- [x] `NotExtended` (sin `max_pct`) excluye el bucket favorable-extremo en ambos lados; un segundo `bucket_thresholds.extended` mueve el corte; evidencia coherente. Tests verdes. *(T4.1 — 135 passed, 2026-06-18)*
+- [x] `max_extension_pct` retirado de `config/strategies.json` y de `storage/` tras el seed; `grep` en `.py` limpio; round-trip idéntico; `resolve_bucket_thresholds` intacto. *(T5.1 — grep vacío en `.py`/config/storage, diff round-trip vacío, las 4 estrategias resuelven {near,mild,extended}, 2026-06-18)*
+- [x] Formateador reproduce **literalmente** las 4 líneas del ejemplo. *(T6.1 — `core/pipeline.py` + `tests/test_pipeline.py`; 138 passed, 2026-06-18)*
+- [x] `ScanResult` (contrato mínimo en `core/pipeline.py`) con `rules_passed_count` + `sma_evidence` (documentado como proyección del snapshot); §5 de PLAN.md alineada. *(T7 — construible sin args con defaults, acepta la proyección, default_factory por-instancia; nota §5 alineada; 141 passed, 2026-06-18)*
+- [x] **Cero código muerto:** `grep` de `evaluate(sd`, `position_vs_sma` (en `rules.py`), `max_extension_pct` (en `.py`/config) y de un segundo símbolo de clase de regla → todos vacíos; `StubSymbolData`/test de frío reubicados a `test_features.py`; sin tests saltados ni stubs sin uso. *(cerrado al completar T5: la parte de `rules.py`/tests venía de T3, la de `max_extension_pct` la cierra T5, 2026-06-18)*
 - [ ] `core/features.py` y `core/rules.py` sin imports de `QCAlgorithm`/`self.history`; suite completa verde en Docker. Commit `[Etapa 6B] ...`.
 
 ---
@@ -187,4 +187,4 @@ Redundante con `bucket_thresholds.extended` (hoy ambos `0.10` en las 4 estrategi
 ## Preguntas abiertas
 
 - [x] **¿Conservar el símbolo `AboveSMA`** (como alias/factory `side="above"` de `SMAPositionRule`) o eliminarlo del namespace? **RESUELTO (2026-06-14): ELIMINADO.** Tras el rediseño no hay semántica "above-específica" — es `SMAPositionRule(side="above")`; una factory reintroduciría la dualidad que el rediseño quitó y forzaría simétricos `BelowSMA`/etc. E7 apunta a composición config-driven (`direction→side` vía `SIDE_BY_DIRECTION`), así que `side` no se teclea a mano: la factory aportaba poco. El `name` sigue renderizando `AboveSMA(...)`/`BelowSMA(...)` como etiqueta legible. Reintroducir factory es trivial si E7 muestra fricción real.
-- [ ] **Ubicación del formateador de log** (`rules.py` vs `pipeline.py`): preferencia `pipeline.py` (vive junto al filtrado de E7), pero `rules.py` lo mantiene con el resto de L4 puro. Decidir en T6.
+- [x] **Ubicación del formateador de log** (`rules.py` vs `pipeline.py`): **RESUELTO (2026-06-18, T6): `core/pipeline.py`.** El log de embudo describe contadores del filtrado en cascada (un concepto del orquestador/E7), no el veredicto de una rule individual; ponerlo en `rules.py` mezclaría observabilidad del pipeline con la lógica de filtro pura. `pipeline.py` ya es donde vivirá su único caller (la cascada de E7) y el `ScanResult` (T7). `rules.py` se mantiene como L4 puro de filtros. Se creó `pipeline.py` en esta tarea (T7 le añade `ScanResult`).

@@ -11,8 +11,8 @@ asumen snapshot caliente). AboveSMA fue eliminado en T3.2 (un solo símbolo de c
 """
 import pytest
 
-from core.features import BUCKETS, PositionResult
-from core.rules import RuleResult, SMAPositionRule
+from core.features import BUCKETS, PositionResult, _bucketize
+from core.rules import NotExtended, RuleResult, SMAPositionRule
 
 
 # Buckets "por encima" canónicos (vocabulario above); el mirror los lleva a short.
@@ -161,3 +161,74 @@ def test_required_flag_propagates():
     snap = _snapshot({("D", 20): (100.0, 0.05, "above_strong")})
     result = SMAPositionRule(20, ["D"], ABOVE, side="above", required=False).evaluate(snap)
     assert result.required is False
+
+
+# ---------------------------------------------------------------------------
+# T4 (Etapa 6B) — NotExtended: preset (constructor con nombre) de SMAPositionRule que
+# excluye el bucket favorable-extremo. Sin max_pct: el corte lo fija el bucket_thresholds.
+# extended ÚNICO de la estrategia, ya aplicado al bucketizar el snapshot (supersede D4).
+# ---------------------------------------------------------------------------
+
+# (a) Largo: falla en extended_above; pasa en above_strong (justo por debajo del corte extended)
+def test_notextended_long_fails_extended_passes_strong():
+    rule = NotExtended(8, "D", side="above")
+    assert rule.name == "NotExtended(8,D)"
+    assert rule.required is True
+    fails = rule.evaluate(_snapshot({("D", 8): (100.0, 0.12, "extended_above")}))
+    passes = rule.evaluate(_snapshot({("D", 8): (100.0, 0.05, "above_strong")}))
+    assert fails.passed is False
+    assert passes.passed is True
+
+
+# (a) el set permitido excluye SOLO el bucket favorable-extremo (los otros 6 pasan)
+def test_notextended_long_allows_all_but_extended_above():
+    rule = NotExtended(8, "D", side="above")
+    assert rule.buckets_allowed == frozenset(set(BUCKETS) - {"extended_above"})
+
+
+# (b) Corto: el mirror excluye extended_below; falla en extended_below, pasa en below_strong
+def test_notextended_short_mirrors_to_exclude_extended_below():
+    rule = NotExtended(8, "D", side="below")
+    assert rule.name == "NotExtended(8,D)"  # name independiente del side (label custom)
+    assert rule.buckets_allowed == frozenset(set(BUCKETS) - {"extended_below"})
+    fails = rule.evaluate(_snapshot({("D", 8): (100.0, -0.12, "extended_below")}))
+    passes = rule.evaluate(_snapshot({("D", 8): (100.0, -0.05, "below_strong")}))
+    assert fails.passed is False
+    assert passes.passed is True
+
+
+# (c) el ÚNICO bucket_thresholds.extended de la estrategia mueve el corte de NotExtended
+# (reemplaza al viejo test de max_pct per-regla, que ya no existe). El snapshot se construye
+# con el MISMO _bucketize de producción a dos `extended`; MISMA rule, MISMA distancia (+9%):
+# con extended=0.10 → above_strong (pasa); con extended=0.08 → extended_above (falla).
+THRESHOLDS_LOOSE = {"near": 0.005, "mild": 0.03, "extended": 0.10}
+THRESHOLDS_TIGHT = {"near": 0.01, "mild": 0.05, "extended": 0.08}
+
+
+def _snapshot_at(tf, period, value, distance_pct, thresholds) -> dict:
+    """Snapshot de 1 serie bucketizado por el _bucketize REAL al `thresholds` dado:
+    aísla que el corte de NotExtended lo fija el `extended` del snapshot, no la rule."""
+    return {tf: {period: PositionResult(value, distance_pct, _bucketize(distance_pct, thresholds))}}
+
+
+def test_notextended_cut_driven_by_strategy_extended_threshold():
+    rule = NotExtended(8, "D", side="above")
+    snap_loose = _snapshot_at("D", 8, 100.0, 0.09, THRESHOLDS_LOOSE)  # extended=0.10
+    snap_tight = _snapshot_at("D", 8, 100.0, 0.09, THRESHOLDS_TIGHT)  # extended=0.08
+    assert snap_loose["D"][8].bucket == "above_strong"
+    assert snap_tight["D"][8].bucket == "extended_above"
+    assert rule.evaluate(snap_loose).passed is True
+    assert rule.evaluate(snap_tight).passed is False
+
+
+# (d) evidencia con la misma forma {tf:{period:{value,distance_pct,bucket}}} que SMAPositionRule
+def test_notextended_evidence_shape():
+    rule = NotExtended(8, "D", side="above")
+    result = rule.evaluate(_snapshot({("D", 8): (100.0, 0.05, "above_strong")}))
+    _assert_evidence(result.evidence, {"D": {8: (100.0, 0.05, "above_strong")}})
+
+
+# required se propaga a través del preset (no se fuerza a True)
+def test_notextended_required_flag_propagates():
+    rule = NotExtended(8, "D", side="above", required=False)
+    assert rule.required is False

@@ -3,7 +3,9 @@
 **Tipo:** explicación (modelo mental). No es un how-to ni un ADR — para *decisiones* ver
 [ADR-005](../../.claude/decisions/ADR-005-snapshot-unico-y-reglas-como-filtros.md).
 **Código:** `core/features.py` (`BUCKETS`, `_bucketize`, `mirror_buckets`, `_MIRROR`,
-`SIDE_BY_DIRECTION`), `core/rules.py` (`SMAPositionRule`).
+`SIDE_BY_DIRECTION`, `resolve_bucket_thresholds`, `DEFAULT_BUCKET_THRESHOLDS`),
+`core/rules.py` (`SMAPositionRule`).
+**Config:** `config/strategies.json` → `storage/config/strategies.json` (ObjectStore).
 **Spec:** `.claude/fase-1-desarrollo-local/etapa-06b.md` (D6B.1, D6B.4).
 
 Este documento aclara una confusión natural: en el screener hay **dos cosas distintas** que
@@ -30,6 +32,40 @@ arriba a más abajo de la media (`core/features.py: BUCKETS`):
 Los cortes (`near < mild < extended`) salen de `bucket_thresholds` de la estrategia
 (`resolve_bucket_thresholds`), y `_bucketize(distance_pct, thresholds)` asigna el bucket a partir
 de la distancia relativa `(close - sma) / sma`.
+
+---
+
+## Dónde se configuran los límites (thresholds)
+
+Los límites de los buckets son los 3 cortes `near < mild < extended`. Se resuelven con
+**precedencia de 3 niveles** (override de estrategia > global > defaults del código):
+
+**1. Global — `config/strategies.json` (raíz del objeto):**
+```json
+"bucket_thresholds": { "near": 0.005, "mild": 0.03, "extended": 0.10 }
+```
+Es la fuente versionada. `seed_object_store.sh` lo copia a `storage/config/strategies.json`, que el
+algoritmo lee en runtime vía `self.object_store` (ObjectStore). **Nunca** con `open()` ni hardcodeado.
+
+**2. Override por estrategia (opcional) — mismo archivo:**
+```
+strategies.<nombre>.bucket_thresholds   # gana CLAVE POR CLAVE sobre el global (merge poco profundo)
+```
+Hoy ninguna de las 4 estrategias define override.
+
+**3. Defaults del código (última red) — `core/features.py`:**
+```python
+DEFAULT_BUCKET_THRESHOLDS = {"near": 0.005, "mild": 0.03, "extended": 0.10}
+```
+Solo aplican si una clave falta tanto en el override como en el global.
+
+La resolución vive en `resolve_bucket_thresholds(full_config, strategy_name)`: aplica la precedencia,
+devuelve siempre las 3 claves y valida `0 < near < mild < extended` (único punto de control — no el
+hot path `_bucketize`). El dict resuelto viaja a `build_position_snapshot → position_vs_sma → _bucketize`.
+
+> **Convenciones.** Son **fracciones, no porcentajes** (`0.10` = 10%, no `10`). Los valores actuales
+> son **placeholders**; la calibración real es **Etapa 9**. No confundir con `max_extension_pct` (clave
+> redundante retirada en 6B/T5, D6B.8): el corte "extendido" único es `bucket_thresholds.extended`.
 
 ---
 

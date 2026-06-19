@@ -81,3 +81,30 @@ class SMAPositionRule:
             name=self.name,
             required=self.required,
         )
+
+
+def NotExtended(
+    period: int,
+    tf: str,
+    side: str,
+    required: bool = True,
+) -> SMAPositionRule:
+    """Preset (constructor con nombre) de `SMAPositionRule`: "no perseguir lo ya extendido".
+
+    Devuelve un `SMAPositionRule` con `buckets_allowed = BUCKETS − {"extended_above"}` y
+    `label="NotExtended"` (D6B.6, supersede D4): "no extendido" ≡ "el bucket favorable-extremo
+    está excluido". Es composición, NO una subclase ni un alias vacío — encapsula el *concepto*
+    "extendido" (qué buckets cuentan), no solo precarga un argumento (por eso se conserva, a
+    diferencia del `AboveSMA`-alias eliminado en T3.2). El corte que define "extremo" NO es un
+    umbral propio (se retiró `max_pct`): es el `bucket_thresholds.extended` único de la estrategia,
+    ya aplicado al bucketizar el snapshot. El mirror al `side` (D6B.4) lleva la exclusión a
+    `extended_below` en short, sin una regla simétrica aparte.
+    """
+    return SMAPositionRule(
+        period,
+        [tf],
+        buckets_allowed=set(BUCKETS) - {"extended_above"},
+        side=side,
+        required=required,
+        label="NotExtended",
+    )
