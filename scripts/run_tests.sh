@@ -24,10 +24,11 @@ RUNTIME_CONFIG="$DEBUG_DIR/QuantConnect.Lean.Launcher.runtimeconfig.json"
 docker run --rm --entrypoint bash \
   -e PYTHONNET_RUNTIME=coreclr \
   -e PYTHONNET_CORECLR_RUNTIME_CONFIG="$RUNTIME_CONFIG" \
-  -e PYTHONPATH=/Project \
+  -e PYTHONPATH=/Project:/Scripts \
   -e PYTHONDONTWRITEBYTECODE=1 \
   -e TRADE_SCANNER_DATA=/Data \
   -v "$PROJECT":/Project \
+  -v "$WORKSPACE/scripts":/Scripts:ro \
   -v "$WORKSPACE/data":/Data:ro \
   "$IMAGE" -c "
     set -e

@@ -342,14 +342,21 @@ Variante shorts (`*_short`): universo `swing_declines`, `direction: short` → l
 - [x] Símbolos con warmup incompleto (serie referenciada fría) quedan excluidos y logueados (FB por `M:20 fría`, gate B)
 
 ## Etapa 8 — OutputSink y notificación por entorno
-**Estado:** pendiente
+**Estado:** completada (T1–T7, 2026-06-19) — 225 passed; backtest dev verificado; switch por canal demostrado config-only. Diferido a E9: envío real Gmail + `qc_notify` cloud live.
 **Objetivo:** salida CSV/JSON y notificación seleccionadas por entorno, aisladas en un módulo
 **Depende de:** Etapa 7
-**Alcance:**
-- `core/output.py`: serialización CSV+JSON del ScanResult; destino según entorno: local → archivo en ObjectStore/carpeta de resultados + log; QC cloud live → `self.notify` (NotificationManager). Detección vía `self.live_mode` + parámetro de entorno.
+**Spec detallado:** [.claude/fase-1-desarrollo-local/etapa-08.md](.claude/fase-1-desarrollo-local/etapa-08.md)
+**Alcance (lo construido):**
+- `core/output.py`: serialización CSV+JSON + **envelope por estrategia base** (D8.2: long+short en un solo envelope, ordenado por `rules_passed_count`) + `OutputSink` con **dispatch por tabla de canales leída de `config/notifications.json`** (`file`/`qc_notify`/`host_email`, D8.4) — el switch local/cloud vive SOLO aquí, sin ramas `if env ==`. `JsonSubscriberSource` (lookup de suscriptores por estrategia base, swappable a DB, D8.5).
+- `core/email_render.py`: `render_email(envelope) -> EmailDoc` **puro y SDK-free**, compartido por el algoritmo (`qc_notify`) y el script host (D8.1); bloques LONG/SHORT (tickers uno-por-línea) + tabla de detalle humanizada.
+- `config/notifications.json`: `notification_groups` (estrategia base → variantes, D8.7), canales/`notify_empty` por entorno, suscriptores por base, `email.from`/`subject_prefix`. Sin secretos (token Gmail en `.env`).
+- `main.py`: schedule **por estrategia base** (un `ScheduledEvent` por grupo, D8.7) → `_scan_group` corre los pipelines miembro (long/short) y llama `OutputSink.emit` una vez. Invariante (miembros comparten schedule/`partial_bar`) validado en `initialize()`.
+- `scripts/notify_email.py`: transporte host-side de Gmail (fuera del algoritmo), `--dry-run` por defecto; `send_gmail` aislado y mockeado (envío real → E9). `scripts/run_tests.sh` monta `scripts/` para testearlo en Docker.
 **Done when:**
-- [ ] Backtest produce archivos CSV/JSON legibles del ScanResult
-- [ ] El switch de destino por entorno está aislado en `output.py`, sin ramas de negocio fuera (criterio nº6 del SPECS)
+- [x] Backtest produce archivos CSV/JSON legibles del ScanResult (envelope por base + CSV con columna `direction`; evidencia: `storage/results/swing_eod/latest.json`, IBM short)
+- [x] El switch de destino por entorno está aislado en `output.py`, sin ramas de negocio fuera (criterio nº6 del SPECS) — grep limpio + demo config-only (`channels` cambia comportamiento sin tocar `.py`)
+
+> **Cierre (commit `[Etapa 8]`):** salida materializada — envelope por estrategia base persistido a `storage/results/<base>/` (JSON+CSV+`latest.json`), correo híbrido (render puro compartido + canal por config), script host `notify_email.py` con dry-run. Hallazgo: `dataclasses.asdict()` deepcopia el `as_of` tz-aware (`GMT` de LEAN, no deep-copiable) → copia superficial en `_scanresult_to_dict`. Diferido a E9: envío real Gmail (token/app GCP) + `qc_notify` cloud live (ADR-002). Decisiones y pendientes en [.claude/fase-1-desarrollo-local/etapa-08-decisiones-y-pendientes.md](.claude/fase-1-desarrollo-local/etapa-08-decisiones-y-pendientes.md).
 
 ## Etapa 9 — Validación integral Fase 1
 **Estado:** pendiente

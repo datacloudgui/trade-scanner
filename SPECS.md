@@ -1,6 +1,6 @@
 # SPECS — Screener de Acciones sobre LEAN
 
-**Versión:** 0.1 (V1) · **Fecha:** 2026-06-18 · **Estado:** en desarrollo — Etapas 1–5A y 6 completadas; 6B en cierre (capa de reglas rediseñada — ADR-005: snapshot único + reglas como filtros puros); 5B en progreso; **7 completada** (T1–T6, 2026-06-19: pipeline end-to-end + composición declarativa + minute subscription + schedule; backtest dev reproducible con evidencia por candidato. El backtest a escala ≥3 meses se difiere a Etapa 9 por límite de datos minute — decisión usuario)
+**Versión:** 0.1 (V1) · **Fecha:** 2026-06-19 · **Estado:** en desarrollo — Etapas 1–5A y 6 completadas; 6B en cierre (capa de reglas rediseñada — ADR-005: snapshot único + reglas como filtros puros); 5B en progreso; 7 completada (pipeline end-to-end + composición declarativa + minute subscription + schedule); **8 completada** (T1–T7, 2026-06-19: `OutputSink` con salida por entorno aislada — envelope por estrategia base persistido CSV/JSON + correo híbrido render-puro-compartido/canal-por-config + script host `notify_email.py` dry-run; backtest dev verificado. Envío real Gmail + `qc_notify` cloud live diferidos a Etapa 9). El backtest a escala ≥3 meses se difiere a Etapa 9 por límite de datos minute — decisión usuario.
 
 ---
 
@@ -86,7 +86,7 @@
 | `ScanPipeline` | Una estrategia: `UniverseSpec` + lista de `Rules` + `ScheduleSpec`. Ejecuta el scan y produce `ScanResult`. | V1: `swing_eod`, `market_close`. |
 | `ScheduleSpec` | Cuándo corre cada pipeline. Ej.: `swing_eod` → tras el cierre; `market_close` → 30 min antes del cierre. | Implementado con `self.schedule.on(date_rules, time_rules)` sobre el calendario del mercado. |
 | `ScanResult` | Watchlist: lista de candidatos con evidencia por regla (valores de SMAs, % extensión, % cambio, timestamp `as_of`, flag `partial_bar`). | Serializable a CSV/JSON. |
-| `OutputSink` | Persistencia + notificación según entorno: ObjectStore + `NotificationManager` en QC cloud; archivo CSV/JSON (+ log) en local/VPS. | Selección por detección de entorno (`self.live_mode` + config), no por ramas de lógica de negocio. |
+| `OutputSink` | Persistencia + notificación según entorno (Etapa 8). Unidad = **envelope por estrategia base·scan** (long+short en uno, D8.2). SIEMPRE escribe archivo (CSV+JSON+`latest.json` en `results/<base>/` vía ObjectStore); la notificación es condicional. | Dispatch por **tabla de canales leída de `config/notifications.json`** (`file`/`qc_notify`/`host_email`, D8.4), no por ramas `if env ==`. El correo se parte en **render puro compartido** (`core/email_render.py`) + **transporte por entorno**: cloud → `self.notify.email`; local/VPS → script host `scripts/notify_email.py` (Gmail, fuera del algoritmo). Gate de vida suprime correo en backtest. Suscriptores por estrategia base vía `JsonSubscriberSource` (swappable a DB, D8.5). |
 
 ---
 

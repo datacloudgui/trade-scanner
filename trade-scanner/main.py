@@ -7,6 +7,7 @@ from time import perf_counter
 
 import core
 from core.features import SIDE_BY_DIRECTION, resolve_bucket_thresholds
+from core.output import JsonSubscriberSource, OutputSink
 from core.pipeline import ScanPipeline
 from core.symbol_data import SymbolData
 from core.timeframes import TIMEFRAMES, plan_warmup
@@ -121,19 +122,15 @@ class Tradescanner(QCAlgorithm):
         spy = next((s for s in self.symbol_data if s.value == "SPY"), None)
         self.spy = spy or self.add_equity("SPY", Resolution.DAILY).symbol
 
-        # T5.2/T5.3 — un ScanPipeline por estrategia (config=datos × strategies/=composición),
+        # Un ScanPipeline por estrategia/variante (config=datos × strategies/=composición),
         # resuelto en initialize() (D7.1): direction→side en un solo punto (D7.3), thresholds y
-        # rules ya construidas. Un ScheduledEvent por estrategia con el callback real (scan).
+        # rules ya construidas. El schedule ya NO es por variante: lo registra el grupo (T5.2).
         self.pipelines: dict[str, ScanPipeline] = {}
         self._probe_done = False  # probe de emisión A.3: solo en el primer scan real
         for name, cfg in strategies_config.items():
             composition = strategies.STRATEGIES.get(name)
             if composition is None:
                 self.log(f"[{name}] sin StrategyConfig en STRATEGIES: omitida del scan")
-                continue
-            time_rule = self._time_rule_for(cfg["schedule"])
-            if time_rule is None:
-                self.log(f"schedule desconocido '{cfg['schedule']}' para '{name}': omitido")
                 continue
             side = SIDE_BY_DIRECTION[cfg["direction"]]
             self.pipelines[name] = ScanPipeline(
@@ -146,11 +143,49 @@ class Tradescanner(QCAlgorithm):
                 top_n=top_n,
                 partial_bar=composition.partial_bar,
             )
+
+        # T5.1 — OutputSink (Etapa 8): L5 es el único que toca object_store/notify/live_mode/
+        # schedule, así que aquí se construye el sink y se enchufa la config de notificación. El
+        # switch local/cloud vive SOLO en OutputSink (D8.4): main.py no decide canal por entorno.
+        self._env = env
+        notif_cfg = json.loads(self.object_store.read("config/notifications.json"))
+        self.output = OutputSink(
+            self.object_store,
+            self.notify,
+            self.live_mode,
+            notif_cfg,
+            JsonSubscriberSource(notif_cfg),
+            self.log,
+        )
+
+        # T5.2 — un ScheduledEvent por estrategia BASE (D8.7), no por variante: el grupo corre sus
+        # pipelines miembro (long/short) y emite UNA vez. Invariante D8.7 validado aquí (miembros
+        # comparten schedule y partial_bar) → config inconsistente = error explícito en initialize().
+        for base, members in notif_cfg["notification_groups"].items():
+            active = [m for m in members if m in self.pipelines]
+            if not active:
+                self.log(f"[{base}] grupo sin pipelines activos: omitido del schedule")
+                continue
+            schedules = {strategies_config[m]["schedule"] for m in active}
+            if len(schedules) > 1:
+                raise ValueError(
+                    f"grupo '{base}' (D8.7): miembros con schedule distinto {schedules}"
+                )
+            partial_bars = {self.pipelines[m].partial_bar for m in active}
+            if len(partial_bars) > 1:
+                raise ValueError(
+                    f"grupo '{base}' (D8.7): miembros con partial_bar distinto {partial_bars}"
+                )
+            time_rule = self._time_rule_for(schedules.pop())
+            if time_rule is None:
+                self.log(f"[{base}] schedule desconocido: grupo omitido")
+                continue
             self.schedule.on(
                 self.date_rules.every_day(self.spy),
                 time_rule,
-                lambda name=name: self._scan(name),
+                lambda base=base, active=tuple(active): self._scan_group(base, active),
             )
+            self.log(f"[{base}] schedule registrado: miembros {list(active)}")
 
         # T2.2 — Estrategia A (D4): warmup engine-managed (adoptada: gate 9/9 series
         # exactas vs ruta manual, 2026-06-11). El gate de cross-check queda detrás del
@@ -320,30 +355,42 @@ class Tradescanner(QCAlgorithm):
     def _count_consolidated(self, symbol: Symbol) -> None:
         self._daily_consolidated[symbol] += 1
 
-    def _scan(self, name: str) -> None:
-        """Callback real del ScheduledEvent (T5.3): corre el pipeline de la estrategia sobre
-        el estado caliente de los símbolos y loguea el embudo + nº de candidatos. Guardado
-        contra warmup: los ScheduledEvents también disparan con data histórica. La escritura a
-        archivo/notificación es Etapa 8 — aquí el ScanResult vive en memoria + log."""
+    def _scan_group(self, base: str, members: tuple) -> None:
+        """Callback del ScheduledEvent por estrategia base (D8.7/T5.2): corre el pipeline de cada
+        miembro (long, short), agrupa los ScanResult por dirección en `sections` y emite UNA vez al
+        OutputSink (Etapa 8). Conserva el log de candidatos por variante (ortogonal). Guardado
+        contra warmup: los ScheduledEvents también disparan con data histórica."""
         if self.is_warming_up:
-            return
-        pipeline = self.pipelines.get(name)
-        if pipeline is None:
             return
         if not self._probe_done:
             self._emit_probe()          # A.3: confirmar que "hoy" no está consolidado al scan
             self._probe_done = True
-        results = pipeline.scan(self.symbol_data, self.utc_time, self.log)
-        # Watchlist visible y reproducible en el log: una línea por candidato con su
-        # evidencia (T6.2). La escritura a archivo/notificación es Etapa 8; aquí memoria + log.
-        for r in results:
-            self.log(
-                f"[{name}] candidato {r.ticker} {r.direction} "
-                f"price={r.price:.4f} partial_bar={r.partial_bar} "
-                f"passed={'|'.join(r.passed_rules)} "
-                f"evidence={json.dumps(r.sma_evidence, sort_keys=True)}"
-            )
-        self.log(f"[{name}] scan @ {self.utc_time}: {len(results)} candidatos")
+        # `sections` se siembra con la dirección de cada miembro ACTIVO (no de sus resultados): un
+        # lado activo sin candidatos queda como sección vacía (count 0) para que el correo muestre
+        # "(sin candidatos)" en ese bloque (D8.6), en vez de omitirlo.
+        sections: dict[str, list] = {}
+        partial_bar = False
+        for name in members:
+            pipeline = self.pipelines.get(name)
+            if pipeline is None:
+                continue
+            partial_bar = pipeline.partial_bar  # uniforme por grupo (validado en initialize)
+            sections.setdefault(pipeline.direction, [])
+            results = pipeline.scan(self.symbol_data, self.utc_time, self.log)
+            # Watchlist visible y reproducible en el log: una línea por candidato con su evidencia.
+            for r in results:
+                self.log(
+                    f"[{name}] candidato {r.ticker} {r.direction} "
+                    f"price={r.price:.4f} partial_bar={r.partial_bar} "
+                    f"passed={'|'.join(r.passed_rules)} "
+                    f"evidence={json.dumps(r.sma_evidence, sort_keys=True)}"
+                )
+            self.log(f"[{name}] scan @ {self.utc_time}: {len(results)} candidatos")
+            sections[pipeline.direction].extend(results)
+        # Un solo emit por estrategia base (D8.2): el switch de canal/entorno vive en OutputSink.
+        self.output.emit(base, self._env, self.utc_time, partial_bar, sections)
+        counts = ", ".join(f"{side}:{len(rs)}" for side, rs in sorted(sections.items()))
+        self.log(f"[{base}] emit @ {self.utc_time}: sections={{{counts}}}")
 
     def _emit_probe(self, ticker: str = "SPY") -> None:
         """Probe de emisión (A.3): loguea working_bar vs close('D') de un símbolo en el primer

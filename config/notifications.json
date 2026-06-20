@@ -1,0 +1,18 @@
+{
+  "notification_groups": {
+    "swing_eod":    ["swing_eod", "swing_eod_short"],
+    "market_close": ["market_close", "market_close_short"]
+  },
+  "environments": {
+    "dev":  { "channels": ["file"],               "notify_empty": false },
+    "prod": { "channels": ["file", "host_email"], "notify_empty": false }
+  },
+  "email": {
+    "from": "trade-scanner@example.com",
+    "subject_prefix": "[trade-scanner]"
+  },
+  "subscribers": {
+    "swing_eod":    ["guillermosanchezh@gmail.com"],
+    "market_close": ["guillermosanchezh@gmail.com"]
+  }
+}

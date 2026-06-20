@@ -1,0 +1,96 @@
+{
+  "strategy": "swing_eod",
+  "env": "prod",
+  "as_of": "2026-06-19T20:01:00+00:00",
+  "partial_bar": false,
+  "totals": { "long": 3, "short": 2, "all": 5 },
+  "sections": {
+    "long": {
+      "direction": "long",
+      "count": 3,
+      "candidates": [
+        {
+          "strategy": "swing_eod",
+          "as_of": "2026-06-19T20:01:00+00:00",
+          "ticker": "AAPL",
+          "direction": "long",
+          "partial_bar": false,
+          "price": 195.42,
+          "time_frames_evaluated": ["D", "W"],
+          "sma_evidence": {
+            "D": { "20": { "bucket": "above_mild", "distance_pct": 0.0231, "value": 191.0 } },
+            "W": { "20": { "bucket": "above_mild", "distance_pct": 0.0512, "value": 185.9 } }
+          },
+          "passed_rules": ["AboveSMA(20,W+M)", "AboveSMA(20,D)", "NotExtended(8,D)"],
+          "rules_passed_count": 3
+        },
+        {
+          "strategy": "swing_eod",
+          "as_of": "2026-06-19T20:01:00+00:00",
+          "ticker": "MSFT",
+          "direction": "long",
+          "partial_bar": false,
+          "price": 421.8,
+          "time_frames_evaluated": ["D", "W"],
+          "sma_evidence": {
+            "D": { "20": { "bucket": "above_mild", "distance_pct": 0.0157, "value": 415.3 } },
+            "W": { "20": { "bucket": "near", "distance_pct": 0.0089, "value": 418.1 } }
+          },
+          "passed_rules": ["AboveSMA(20,W+M)", "AboveSMA(20,D)"],
+          "rules_passed_count": 2
+        },
+        {
+          "strategy": "swing_eod",
+          "as_of": "2026-06-19T20:01:00+00:00",
+          "ticker": "NVDA",
+          "direction": "long",
+          "partial_bar": false,
+          "price": 122.04,
+          "time_frames_evaluated": ["D", "W"],
+          "sma_evidence": {
+            "D": { "20": { "bucket": "near", "distance_pct": 0.0041, "value": 121.5 } },
+            "W": { "20": { "bucket": "above_mild", "distance_pct": 0.0378, "value": 117.6 } }
+          },
+          "passed_rules": ["AboveSMA(20,D)"],
+          "rules_passed_count": 1
+        }
+      ]
+    },
+    "short": {
+      "direction": "short",
+      "count": 2,
+      "candidates": [
+        {
+          "strategy": "swing_eod_short",
+          "as_of": "2026-06-19T20:01:00+00:00",
+          "ticker": "XYZ",
+          "direction": "short",
+          "partial_bar": false,
+          "price": 48.17,
+          "time_frames_evaluated": ["D", "W"],
+          "sma_evidence": {
+            "D": { "20": { "bucket": "below_mild", "distance_pct": -0.0294, "value": 49.6 } },
+            "W": { "20": { "bucket": "below_strong", "distance_pct": -0.0631, "value": 51.4 } }
+          },
+          "passed_rules": ["BelowSMA(20,W+M)", "BelowSMA(20,D)"],
+          "rules_passed_count": 2
+        },
+        {
+          "strategy": "swing_eod_short",
+          "as_of": "2026-06-19T20:01:00+00:00",
+          "ticker": "ABC",
+          "direction": "short",
+          "partial_bar": false,
+          "price": 12.33,
+          "time_frames_evaluated": ["D", "W"],
+          "sma_evidence": {
+            "D": { "20": { "bucket": "below_mild", "distance_pct": -0.0188, "value": 12.56 } },
+            "W": { "20": { "bucket": "near", "distance_pct": -0.0072, "value": 12.42 } }
+          },
+          "passed_rules": ["BelowSMA(20,D)"],
+          "rules_passed_count": 1
+        }
+      ]
+    }
+  }
+}
