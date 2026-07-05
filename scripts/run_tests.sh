@@ -27,6 +27,7 @@ docker run --rm --entrypoint bash \
   -e PYTHONPATH=/Project:/Scripts \
   -e PYTHONDONTWRITEBYTECODE=1 \
   -e TRADE_SCANNER_DATA=/Data \
+  -e TRADE_SCANNER_SCRIPTS=/Scripts \
   -v "$PROJECT":/Project \
   -v "$WORKSPACE/scripts":/Scripts:ro \
   -v "$WORKSPACE/data":/Data:ro \

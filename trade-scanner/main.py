@@ -8,7 +8,7 @@ from time import perf_counter
 import core
 from core.features import SIDE_BY_DIRECTION, resolve_bucket_thresholds
 from core.output import JsonSubscriberSource, OutputSink
-from core.pipeline import ScanPipeline
+from core.pipeline import ScanPipeline, validate_series_against_plan
 from core.symbol_data import SymbolData
 from core.timeframes import TIMEFRAMES, plan_warmup
 from core.universe import UniverseSpec
@@ -127,18 +127,26 @@ class Tradescanner(QCAlgorithm):
         # rules ya construidas. El schedule ya NO es por variante: lo registra el grupo (T5.2).
         self.pipelines: dict[str, ScanPipeline] = {}
         self._probe_done = False  # probe de emisión A.3: solo en el primer scan real
+        # #20 (triaje E1–E8): las series que referencian las rules deben estar en el plan de
+        # warmup; si el presupuesto excluyó una, fallar AQUÍ con ValueError claro, no con
+        # KeyError en pleno scan.
+        available_series = {
+            (tf, p) for tf, periods in self._requirements.items() for p in periods
+        }
         for name, cfg in strategies_config.items():
             composition = strategies.STRATEGIES.get(name)
             if composition is None:
                 self.log(f"[{name}] sin StrategyConfig en STRATEGIES: omitida del scan")
                 continue
             side = SIDE_BY_DIRECTION[cfg["direction"]]
+            series = composition.series(side)
+            validate_series_against_plan(name, series, available_series)
             self.pipelines[name] = ScanPipeline(
                 strategy_name=name,
                 direction=cfg["direction"],
                 side=side,
                 rules=composition.build_rules(side),
-                series=composition.series(side),
+                series=series,
                 thresholds=resolve_bucket_thresholds(full_config, name),
                 top_n=top_n,
                 partial_bar=composition.partial_bar,

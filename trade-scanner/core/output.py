@@ -235,17 +235,21 @@ class OutputSink:
     ) -> None:
         """Despacha la salida de un scan por estrategia base (D8.2/D8.4).
 
-        Construye **un** envelope (T1.1) y, por cada canal habilitado del entorno, ejecuta su handler
-        de la tabla `{file, qc_notify, host_email}`. Ningún `if env == ...`: el entorno solo aporta
-        su lista de canales (criterio nº6 SPECS). `sections = {"long": [ScanResult], "short": [...]}`.
+        Construye **un** envelope (T1.1). El archivo se persiste SIEMPRE (D8.3), fuera de la lista
+        de canales: la auditoría no depende de que la config traiga `"file"` (triaje E1–E8 #21).
+        Después, por cada canal de notificación habilitado del entorno, ejecuta su handler de la
+        tabla `{qc_notify, host_email}`. Ningún `if env == ...`: el entorno solo aporta su lista de
+        canales (criterio nº6 SPECS). `sections = {"long": [ScanResult], "short": [...]}`.
         """
         envelope = build_envelope(strategy, env, as_of, partial_bar, sections)
+        self._emit_file(envelope, sections)
         handlers = {
-            "file": self._emit_file,
             "qc_notify": self._emit_qc_notify,
             "host_email": self._emit_host_email,
         }
         for channel in self._channels_for(env):
+            if channel == "file":
+                continue  # ya persistido incondicionalmente arriba
             handler = handlers.get(channel)
             if handler is None:
                 self._log(f"[output] {strategy}: canal desconocido '{channel}' ignorado")

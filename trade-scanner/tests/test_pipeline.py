@@ -10,7 +10,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from core.pipeline import ScanPipeline, ScanResult, format_filter_line, format_final_line
+from core.pipeline import (
+    ScanPipeline,
+    ScanResult,
+    format_filter_line,
+    format_final_line,
+    validate_series_against_plan,
+)
 from core.rules import RuleResult
 from strategies.swing_eod import swing_eod
 
@@ -285,6 +291,26 @@ def test_partial_bar_propagates_to_scanresult():
         _as_map([_passing("AAA", 100.0)]), "t0"
     )
     assert res.partial_bar is True
+
+
+# ---------------------------------------------------------------------------
+# #20 (triaje E1–E8) — validate_series_against_plan: series de rules ⊆ plan de warmup,
+# validado en initialize() (fail-fast) en vez de KeyError en pleno scan.
+# ---------------------------------------------------------------------------
+
+def test_validate_series_missing_from_plan_raises_valueerror():
+    with pytest.raises(ValueError, match=r"swing_eod.*M:200"):
+        validate_series_against_plan(
+            "swing_eod",
+            series={("D", 20), ("M", 200)},
+            available={("D", 20), ("W", 20)},
+        )
+
+
+def test_validate_series_subset_of_plan_passes():
+    validate_series_against_plan(
+        "swing_eod", series={("D", 20)}, available={("D", 20), ("W", 20)}
+    )  # no lanza
 
 
 # (a) watchlist reproducible: mismo input → misma salida (tickers + orden)

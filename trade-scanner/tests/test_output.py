@@ -308,6 +308,26 @@ def test_emit_qc_notify_without_subscribers():
     assert notify.calls == []
 
 
+# (#21 triaje E1–E8) el archivo se persiste SIEMPRE (D8.3), aunque "file" no esté en channels.
+def test_emit_persists_file_even_without_file_channel():
+    sink, store, notify = _emit_sink(["qc_notify"], subs={"swing_eod": ["a@x.com"]})
+    sink.emit("swing_eod", "prod", AS_OF, False, _sections())
+    assert set(store.saved) == {
+        "results/swing_eod/20260619-2001.json",
+        "results/swing_eod/20260619-2001.csv",
+        "results/swing_eod/latest.json",
+    }
+    assert len(notify.calls) == 1  # el canal declarado sigue funcionando
+
+
+# (#21) channels vacío: archivo sí, notificación no.
+def test_emit_persists_file_with_empty_channels():
+    sink, store, notify = _emit_sink([])
+    sink.emit("swing_eod", "prod", AS_OF, False, _sections())
+    assert "results/swing_eod/latest.json" in store.saved
+    assert notify.calls == []
+
+
 # canal desconocido en config → ignorado (sin reventar), logueado.
 def test_emit_unknown_channel_ignored():
     logged = []

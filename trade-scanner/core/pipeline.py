@@ -49,6 +49,26 @@ class ScanResult:
     rules_passed_count: int = 0
 
 
+def validate_series_against_plan(
+    strategy_name: str,
+    series: Iterable[tuple[str, int]],
+    available: Iterable[tuple[str, int]],
+) -> None:
+    """Falla fail-fast si una rule referencia series fuera del plan de warmup (#20 triaje E1–E8).
+
+    `available` = las `(tf, period)` incluidas en `plan_warmup(...).included`. Sin este chequeo en
+    initialize(), una serie excluida por presupuesto aflora como `KeyError` de `SymbolData` en
+    pleno scan (crash del ScheduledEvent), no como error de config claro.
+    """
+    missing = set(series) - set(available)
+    if missing:
+        listed = ", ".join(f"{tf}:{p}" for tf, p in sorted(missing))
+        raise ValueError(
+            f"[{strategy_name}] rules referencian series fuera del plan de warmup: {listed}. "
+            f"Sube warmup_budget o quita esas series de la composición/timeframes."
+        )
+
+
 class ScanPipeline:
     """Una estrategia resuelta (D7.1): el bundle inmutable de su composición + el embudo `scan`.
 

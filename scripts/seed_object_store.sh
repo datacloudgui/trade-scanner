@@ -25,11 +25,12 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE="$(cd "$SCRIPT_DIR/.." && pwd)"
-SRC_CONFIG="$WORKSPACE/config"
-SRC_UNIVERSES="$WORKSPACE/universes"
-DATA_DIR="$WORKSPACE/data/object-store"
+# Overrides por env var: permiten testear el script con dirs temporales (test_seed_object_store.py).
+SRC_CONFIG="${TRADE_SCANNER_CONFIG_SRC:-$WORKSPACE/config}"
+SRC_UNIVERSES="${TRADE_SCANNER_UNIVERSES_SRC:-$WORKSPACE/universes}"
+DATA_DIR="${TRADE_SCANNER_OBJECT_STORE_SRC:-$WORKSPACE/data/object-store}"
 PROCESSED_DIR="$DATA_DIR/processed"
-DEST="$WORKSPACE/storage"
+DEST="${TRADE_SCANNER_STORAGE:-$WORKSPACE/storage}"
 
 echo "Sembrando ObjectStore local ($DEST)"
 echo ""
@@ -51,10 +52,22 @@ seed_universe() {
   local type="$1"       # "advances" o "declines"
   local dest_key="$2"   # "swing_advances" o "swing_declines"
 
-  # Seleccionar el CSV más reciente no archivado (sort por nombre = sort por fecha en el nombre).
+  # Seleccionar el CSV más reciente no archivado. La fecha del nombre es MM-DD-YYYY
+  # (PLAN §5), así que ordenar por nombre es lexicográfico y elige MAL al cruzar
+  # mes/año (12-31-2025 > 01-02-2026): se antepone la clave YYYYMMDD y se ordena por
+  # ella (triaje E1–E8 #7). Nombres sin fecha parseable pierden contra cualquier fecha.
   # find en lugar de ls+glob para que set -eo pipefail no aborte cuando no hay archivos.
   local src
-  src=$(find "$DATA_DIR" -maxdepth 1 -name "*-${type}-*.csv" 2>/dev/null | sort | tail -1)
+  src=$(
+    find "$DATA_DIR" -maxdepth 1 -name "*-${type}-*.csv" 2>/dev/null | while IFS= read -r f; do
+      name="$(basename "$f" .csv)"
+      if [[ "$name" =~ ([0-9]{2})-([0-9]{2})-([0-9]{4})$ ]]; then
+        printf '%s%s%s\t%s\n' "${BASH_REMATCH[3]}" "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "$f"
+      else
+        printf '00000000\t%s\n' "$f"
+      fi
+    done | sort | tail -1 | cut -f2-
+  )
 
   if [[ -z "$src" ]]; then
     echo "  [universos] ADVERTENCIA: no hay archivos *-${type}-*.csv en $DATA_DIR"
