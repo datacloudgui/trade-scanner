@@ -262,10 +262,17 @@ class OutputSink:
         base = envelope["strategy"]
         ts = _timestamp(envelope.get("as_of"))
         json_str = serialize_json(envelope)
-        self._object_store.save(f"results/{base}/{ts}.json", json_str)
-        self._object_store.save(f"results/{base}/{ts}.csv", serialize_csv(sections))
-        self._object_store.save(f"results/{base}/latest.json", json_str)
+        self._save(f"results/{base}/{ts}.json", json_str)
+        self._save(f"results/{base}/{ts}.csv", serialize_csv(sections))
+        self._save(f"results/{base}/latest.json", json_str)
         self._log(f"[output] {base}: archivos results/{base}/{ts}.json|csv + latest.json")
+
+    def _save(self, key: str, content: str) -> None:
+        """`ObjectStore.save` retorna `bool` (`False` = escritura fallida); ignorarlo dejaba
+        fallos de persistencia invisibles (#22 triaje E1–E8). Chequeo `is False` estricto:
+        un store mock/duck-typed que retorna None no cuenta como fallo."""
+        if self._object_store.save(key, content) is False:
+            self._log(f"ERROR [output] fallo al guardar {key} (ObjectStore.save devolvió False)")
 
     def _emit_qc_notify(self, envelope: dict, sections: dict) -> None:
         """Canal `qc_notify` (cloud): `notify.email` con el render compartido (T2). Guards, en orden:
@@ -285,7 +292,11 @@ class OutputSink:
             self._log(f"[output] {base}: sin suscriptores; qc_notify omitido")
             return
         doc = render_email(envelope)
-        self._notify.email(",".join(recipients), doc.subject, doc.html_body)
+        # #22: notify.email retorna bool (False = no encolado; LEAN solo procesa notificaciones
+        # en live). El gate de vida de arriba ya filtra backtest: aquí False es un fallo real.
+        if self._notify.email(",".join(recipients), doc.subject, doc.html_body) is False:
+            self._log(f"ERROR [output] {base}: notify.email devolvió False (correo no encolado)")
+            return
         self._log(f"[output] {base}: qc_notify enviado a {len(recipients)} suscriptor(es)")
 
     def _emit_host_email(self, envelope: dict, sections: dict) -> None:

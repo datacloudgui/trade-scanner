@@ -17,7 +17,7 @@ from core.output import (
     serialize_csv,
     serialize_json,
 )
-from core.pipeline import ScanResult
+from core.pipeline import ScanResult, run_group_scan
 
 AS_OF = datetime(2026, 6, 19, 20, 1, 0)
 
@@ -381,6 +381,128 @@ def test_emit_file_csv_is_plan_contract():
     assert rows[0] == CSV_HEADER
     directions = {r[CSV_HEADER.index("direction")] for r in rows[1:]}
     assert directions == {"long", "short"}
+
+
+# ---------------------------------------------------------------------------
+# #22 (triaje E1–E8) — retornos de save/email: False = fallo, debe quedar en el log.
+# ---------------------------------------------------------------------------
+
+class _FailingStore:
+    def save(self, key, value):
+        return False
+
+
+class _FalseNotify:
+    def __init__(self):
+        self.calls = []
+
+    def email(self, address, subject, message):
+        self.calls.append((address, subject, message))
+        return False
+
+
+def test_save_returning_false_logs_error_per_file():
+    logged = []
+    cfg = {"environments": {"prod": {"channels": [], "notify_empty": False}}}
+    sink = OutputSink(_FailingStore(), _MockNotify(), True, cfg, _Subs({}), log=logged.append)
+    sink.emit("swing_eod", "prod", AS_OF, False, _sections())
+    errors = [line for line in logged if line.startswith("ERROR")]
+    assert len(errors) == 3  # .json, .csv y latest.json
+    assert all("devolvió False" in line for line in errors)
+
+
+def test_email_returning_false_logs_error_and_no_success_line():
+    logged = []
+    cfg = {"environments": {"prod": {"channels": ["qc_notify"], "notify_empty": False}}}
+    notify = _FalseNotify()
+    sink = OutputSink(
+        _MockStore(), notify, True, cfg, _Subs({"swing_eod": ["a@x.com"]}), log=logged.append
+    )
+    sink.emit("swing_eod", "prod", AS_OF, False, _sections())
+    assert len(notify.calls) == 1
+    assert any(line.startswith("ERROR") and "no encolado" in line for line in logged)
+    assert not any("qc_notify enviado" in line for line in logged)
+
+
+# mocks/stores duck-typed que retornan None NO cuentan como fallo (chequeo `is False` estricto)
+def test_save_returning_none_is_not_an_error():
+    logged = []
+    sink, store, _ = _emit_sink(["file"], log=logged.append)  # _MockStore.save retorna None
+    sink.emit("swing_eod", "prod", AS_OF, False, _sections())
+    assert not any(line.startswith("ERROR") for line in logged)
+
+
+# ---------------------------------------------------------------------------
+# #24 (triaje E1–E8) — run_group_scan: el wiring de grupo (D8.7) emite EXACTAMENTE una vez
+# por estrategia base, con secciones por dirección (lado activo vacío incluido, D8.6).
+# ---------------------------------------------------------------------------
+
+class _FakePipeline:
+    def __init__(self, direction, results, partial_bar=False):
+        self.direction = direction
+        self.partial_bar = partial_bar
+        self._results = list(results)
+        self.scanned_with = None
+
+    def scan(self, symbol_data_map, as_of, log=None):
+        self.scanned_with = symbol_data_map
+        return list(self._results)
+
+
+def test_run_group_scan_emits_exactly_once_with_both_sections():
+    emits = []
+    long_p = _FakePipeline("long", [_result("AAPL", "long", 2)])
+    short_p = _FakePipeline("short", [])  # activo pero sin candidatos
+    sections = run_group_scan(
+        "swing_eod",
+        ("swing_eod", "swing_eod_short"),
+        {"swing_eod": long_p, "swing_eod_short": short_p},
+        {"AAPL": object()},
+        AS_OF,
+        "prod",
+        lambda *args: emits.append(args),
+    )
+    assert len(emits) == 1  # UNA emisión por estrategia base (D8.2/D8.7)
+    base, env, as_of, partial_bar, emitted_sections = emits[0]
+    assert (base, env, as_of, partial_bar) == ("swing_eod", "prod", AS_OF, False)
+    assert emitted_sections is sections
+    assert [r.ticker for r in sections["long"]] == ["AAPL"]
+    assert sections["short"] == []  # lado activo sin candidatos = sección vacía (D8.6)
+
+
+def test_run_group_scan_partial_bar_propagates_to_emit():
+    emits = []
+    run_group_scan(
+        "market_close",
+        ("market_close",),
+        {"market_close": _FakePipeline("long", [], partial_bar=True)},
+        {},
+        AS_OF,
+        "dev",
+        lambda *args: emits.append(args),
+    )
+    [(_base, _env, _as_of, partial_bar, sections)] = emits
+    assert partial_bar is True
+    assert sections == {"long": []}
+
+
+# miembro sin pipeline activo (sin StrategyConfig) se omite sin sección ni crash; emite igual
+def test_run_group_scan_skips_inactive_members_but_still_emits():
+    emits = []
+    log = []
+    sections = run_group_scan(
+        "swing_eod",
+        ("swing_eod", "swing_eod_short"),
+        {"swing_eod": _FakePipeline("long", [_result("AAPL", "long", 1)])},
+        {},
+        AS_OF,
+        "prod",
+        lambda *args: emits.append(args),
+        log.append,
+    )
+    assert len(emits) == 1
+    assert set(sections) == {"long"}  # el miembro inactivo no siembra sección
+    assert any("emit @" in line for line in log)
 
 
 # ---------------------------------------------------------------------------

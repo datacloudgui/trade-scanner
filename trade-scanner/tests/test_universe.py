@@ -86,3 +86,53 @@ def test_missing_required_column_raises_key_error():
 def test_object_store_key_not_found_propagates():
     with pytest.raises(KeyError):
         UniverseSpec("universes/missing.csv", FILTER).load(RaisingObjectStore())
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# #14 / #13 (triaje E1–E8) — tope absoluto 200, alias map completo, errores de filtro
+# con contexto. Bloque autocontenido: construye su propio CSV vista 5D y deriva el alias
+# canónico de volumen de _REQUIRED_COLUMNS (no se acopla al nombre exacto del alias).
+# ─────────────────────────────────────────────────────────────────────────────
+
+import itertools
+import string
+
+from core.universe import _REQUIRED_COLUMNS as _REQUIRED
+
+_VOL_ALIAS = next(iter(_REQUIRED - {"price"}))
+_HEADER_5D = 'Symbol,Name,"5D %Chg",Latest,Change,%Change,"5D Avg Vol",Time'
+
+
+def _row_5d(symbol: str, price: float = 10.0, vol: int = 2_000_000,
+            pct1d: str = "+1.00%") -> str:
+    return f"{symbol},Test Corp,+5.00%,{price},0.5,{pct1d},{vol},2026-06-05"
+
+
+# (#14, blinda #11) tope ABSOLUTO de producto: aunque config pida max_tickers > 200, salen ≤200
+def test_absolute_cap_200_overrides_config():
+    symbols = ["".join(c) for c in itertools.product(string.ascii_uppercase, repeat=2)]
+    rows = [_row_5d(sym) for sym in symbols[:250]]
+    csv = "\n".join([_HEADER_5D] + rows)
+    result = UniverseSpec("k", "price > 5", max_tickers=500).load(MockObjectStore(csv))
+    assert len(result) == 200
+
+
+# (#14, blinda #10) alias map completo: Symbol→ticker, Latest→price, %Change→pct_chg_1d y
+# la columna de volumen del periodo → alias canónico; el filtro puede usarlos todos a la vez
+def test_full_alias_map_supports_filter_on_all_aliases():
+    csv = "\n".join([
+        _HEADER_5D,
+        _row_5d("AAA", price=10.0, vol=2_000_000, pct1d="+2.00%"),   # pasa todo
+        _row_5d("BBB", price=10.0, vol=2_000_000, pct1d="-1.00%"),   # falla pct_chg_1d
+        _row_5d("CCC", price=3.0, vol=2_000_000, pct1d="+2.00%"),    # falla price
+        _row_5d("DDD", price=10.0, vol=500_000, pct1d="+2.00%"),     # falla vol
+    ])
+    filt = f"{_VOL_ALIAS} > 1e6 and price > 5 and pct_chg_1d > 0"
+    assert UniverseSpec("k", filt).load(MockObjectStore(csv)) == ["AAA"]
+
+
+# (#13) filtro sobre columna sin alias → ValueError con universo, filtro y columnas disponibles
+def test_filter_on_unknown_column_raises_valueerror_with_context():
+    csv = "\n".join([_HEADER_5D, _row_5d("AAA")])
+    with pytest.raises(ValueError, match=r"universes/x\.csv.*columna_fantasma"):
+        UniverseSpec("universes/x.csv", "columna_fantasma > 1").load(MockObjectStore(csv))

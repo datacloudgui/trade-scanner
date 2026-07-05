@@ -4,8 +4,9 @@
     "market_close": ["market_close", "market_close_short"]
   },
   "environments": {
-    "dev":  { "channels": ["file"],               "notify_empty": false },
-    "prod": { "channels": ["file", "host_email"], "notify_empty": false }
+    "dev":   { "channels": ["file"],               "notify_empty": false },
+    "prod":  { "channels": ["file", "host_email"], "notify_empty": false },
+    "cloud": { "channels": ["file", "qc_notify"],  "notify_empty": false }
   },
   "email": {
     "from": "trade-scanner@example.com",

@@ -323,3 +323,30 @@ def test_results_reproducible_across_runs():
     # CCC (change≈0.0408) primero; AAA y BBB empatan en 0.02 → tie-break ticker asc
     assert run() == ["CCC", "AAA", "BBB"]
     assert run() == run()
+
+
+# ---------------------------------------------------------------------------
+# #25 (triaje E1–E8, parcial) — contrato de universos disjuntos a nivel pipeline: cada
+# pipeline escanea SOLO el mapa que recibe; con mapas long/short disjuntos ningún ticker
+# cruza de lado. El test del wiring L5 completo (UniverseSpec→main.py→pipeline.scan con
+# mapa filtrado POR estrategia) llega con el fix de #12 (separado a decisión de diseño).
+# ---------------------------------------------------------------------------
+
+def test_disjoint_long_short_maps_produce_disjoint_results():
+    long_map = _as_map([_passing("AAA", 100.0), _passing("BBB", 100.0)])
+    short_map = _as_map([_below_passing("XXX", 102.0), _below_passing("YYY", 102.0)])
+
+    long_results = _pipeline(
+        swing_eod.build_rules("above"), direction="long"
+    ).scan(long_map, "t0")
+    short_results = _pipeline(
+        swing_eod.build_rules("below"), direction="short", side="below"
+    ).scan(short_map, "t0")
+
+    long_tickers = {r.ticker for r in long_results}
+    short_tickers = {r.ticker for r in short_results}
+    assert long_tickers == {"AAA", "BBB"}
+    assert short_tickers == {"XXX", "YYY"}
+    assert long_tickers.isdisjoint(short_tickers)
+    assert all(r.direction == "long" for r in long_results)
+    assert all(r.direction == "short" for r in short_results)

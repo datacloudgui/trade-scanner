@@ -7,6 +7,7 @@ referenciadas (B, D7.7), ranking `top_n` por `day_change_pct`, snapshot único p
 cascada de rules → `ScanResult`. La salida a archivo/notificación es Etapa 8; aquí vive en memoria +
 log, este último vía un callable INYECTADO (L4 no habla con `QCAlgorithm`).
 """
+import json
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -188,6 +189,53 @@ class ScanPipeline:
                 )
             )
         return results_out
+
+
+def run_group_scan(
+    base: str,
+    members: Iterable[str],
+    pipelines: dict[str, "ScanPipeline"],
+    symbol_data_map: dict,
+    as_of: datetime | None,
+    env: str,
+    emit: Callable,
+    log: Callable[[str], None] | None = None,
+) -> dict[str, list[ScanResult]]:
+    """Scan del grupo de una estrategia base (D8.7/T5.2): corre el pipeline de cada miembro
+    activo, agrupa los `ScanResult` por dirección en `sections` y emite EXACTAMENTE una vez.
+
+    Extraído de `main._scan_group` para testearlo sin engine (#24 triaje E1–E8): `emit` es el
+    `OutputSink.emit` inyectado (firma `(base, env, as_of, partial_bar, sections)`); `log` el
+    callable de log. `sections` se siembra con la dirección de cada miembro ACTIVO (no de sus
+    resultados): un lado activo sin candidatos queda como sección vacía (count 0) para que el
+    correo muestre "(sin candidatos)" en ese bloque (D8.6). `partial_bar` es uniforme por grupo
+    (invariante D8.7, validado en initialize()). Devuelve `sections` (evidencia para tests/logs).
+    """
+    out = log or (lambda _msg: None)
+    sections: dict[str, list[ScanResult]] = {}
+    partial_bar = False
+    for name in members:
+        pipeline = pipelines.get(name)
+        if pipeline is None:
+            continue
+        partial_bar = pipeline.partial_bar  # uniforme por grupo (validado en initialize)
+        sections.setdefault(pipeline.direction, [])
+        results = pipeline.scan(symbol_data_map, as_of, out)
+        # Watchlist visible y reproducible en el log: una línea por candidato con su evidencia.
+        for r in results:
+            out(
+                f"[{name}] candidato {r.ticker} {r.direction} "
+                f"price={r.price:.4f} partial_bar={r.partial_bar} "
+                f"passed={'|'.join(r.passed_rules)} "
+                f"evidence={json.dumps(r.sma_evidence, sort_keys=True)}"
+            )
+        out(f"[{name}] scan @ {as_of}: {len(results)} candidatos")
+        sections[pipeline.direction].extend(results)
+    # Un solo emit por estrategia base (D8.2): el switch de canal/entorno vive en OutputSink.
+    emit(base, env, as_of, partial_bar, sections)
+    counts = ", ".join(f"{side}:{len(rs)}" for side, rs in sorted(sections.items()))
+    out(f"[{base}] emit @ {as_of}: sections={{{counts}}}")
+    return sections
 
 
 def format_filter_line(

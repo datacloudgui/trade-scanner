@@ -8,7 +8,8 @@ from time import perf_counter
 import core
 from core.features import SIDE_BY_DIRECTION, resolve_bucket_thresholds
 from core.output import JsonSubscriberSource, OutputSink
-from core.pipeline import ScanPipeline, validate_series_against_plan
+from core.pipeline import ScanPipeline, run_group_scan, validate_series_against_plan
+from core.scheduling import time_rule_for
 from core.symbol_data import SymbolData
 from core.timeframes import TIMEFRAMES, plan_warmup
 from core.universe import UniverseSpec
@@ -119,6 +120,11 @@ class Tradescanner(QCAlgorithm):
 
         # Ancla de calendario para las time-rules: SPY del universo si está suscrito;
         # si no (prod), suscripción propia. Provee data (avanza el reloj) y market hours.
+        # DECISIÓN (#5 triaje E1–E8): el fallback usa Resolution.DAILY a propósito y es
+        # seguro — el reloj del backtest avanza por las suscripciones del universo (arriba)
+        # y before/after_market_close usa las market-hours de SPY, que son independientes
+        # de la resolución del feed. Pendiente verificar vs LEAN el caso límite de un
+        # entorno con universo 100% daily (hoy no existe: dev suscribe MINUTE).
         spy = next((s for s in self.symbol_data if s.value == "SPY"), None)
         self.spy = spy or self.add_equity("SPY", Resolution.DAILY).symbol
 
@@ -364,41 +370,25 @@ class Tradescanner(QCAlgorithm):
         self._daily_consolidated[symbol] += 1
 
     def _scan_group(self, base: str, members: tuple) -> None:
-        """Callback del ScheduledEvent por estrategia base (D8.7/T5.2): corre el pipeline de cada
-        miembro (long, short), agrupa los ScanResult por dirección en `sections` y emite UNA vez al
-        OutputSink (Etapa 8). Conserva el log de candidatos por variante (ortogonal). Guardado
-        contra warmup: los ScheduledEvents también disparan con data histórica."""
+        """Callback del ScheduledEvent por estrategia base (D8.7/T5.2). El scan del grupo vive en
+        `core.pipeline.run_group_scan` (testeable sin engine, #24 triaje E1–E8); aquí quedan los
+        guards que SÍ necesitan el algoritmo: warmup (los ScheduledEvents también disparan con
+        data histórica) y el probe A.3 del primer scan real."""
         if self.is_warming_up:
             return
         if not self._probe_done:
             self._emit_probe()          # A.3: confirmar que "hoy" no está consolidado al scan
             self._probe_done = True
-        # `sections` se siembra con la dirección de cada miembro ACTIVO (no de sus resultados): un
-        # lado activo sin candidatos queda como sección vacía (count 0) para que el correo muestre
-        # "(sin candidatos)" en ese bloque (D8.6), en vez de omitirlo.
-        sections: dict[str, list] = {}
-        partial_bar = False
-        for name in members:
-            pipeline = self.pipelines.get(name)
-            if pipeline is None:
-                continue
-            partial_bar = pipeline.partial_bar  # uniforme por grupo (validado en initialize)
-            sections.setdefault(pipeline.direction, [])
-            results = pipeline.scan(self.symbol_data, self.utc_time, self.log)
-            # Watchlist visible y reproducible en el log: una línea por candidato con su evidencia.
-            for r in results:
-                self.log(
-                    f"[{name}] candidato {r.ticker} {r.direction} "
-                    f"price={r.price:.4f} partial_bar={r.partial_bar} "
-                    f"passed={'|'.join(r.passed_rules)} "
-                    f"evidence={json.dumps(r.sma_evidence, sort_keys=True)}"
-                )
-            self.log(f"[{name}] scan @ {self.utc_time}: {len(results)} candidatos")
-            sections[pipeline.direction].extend(results)
-        # Un solo emit por estrategia base (D8.2): el switch de canal/entorno vive en OutputSink.
-        self.output.emit(base, self._env, self.utc_time, partial_bar, sections)
-        counts = ", ".join(f"{side}:{len(rs)}" for side, rs in sorted(sections.items()))
-        self.log(f"[{base}] emit @ {self.utc_time}: sections={{{counts}}}")
+        run_group_scan(
+            base,
+            members,
+            self.pipelines,
+            self.symbol_data,
+            self.utc_time,
+            self._env,
+            self.output.emit,
+            self.log,
+        )
 
     def _emit_probe(self, ticker: str = "SPY") -> None:
         """Probe de emisión (A.3): loguea working_bar vs close('D') de un símbolo en el primer
@@ -437,11 +427,6 @@ class Tradescanner(QCAlgorithm):
         return requirements
 
     def _time_rule_for(self, schedule: str):
-        """Mapea el string de schedule a una time-rule de LEAN anclada a SPY. Punto de
-        extensión: por ahora cubre los strings de la config; desconocido -> None (se omite)."""
-        if schedule == "after_close":
-            # +1 min para asegurar que la barra de cierre ya consolidó (ver decisión D5).
-            return self.time_rules.after_market_close(self.spy, 1)
-        if schedule == "before_close_30m":
-            return self.time_rules.before_market_close(self.spy, 30)
-        return None
+        """Mapea el string de schedule a una time-rule de LEAN anclada a SPY. El mapeo vive en
+        `core.scheduling.time_rule_for` (testeable sin engine, #6 triaje E1–E8)."""
+        return time_rule_for(schedule, self.time_rules, self.spy)

@@ -7,6 +7,10 @@ import re
 
 import pandas as pd
 
+# DECISIÓN (#10 triaje E1–E8, reconcilia con PLAN §5): el alias map se acota A PROPÓSITO
+# a las columnas que el screener usa (etapa-04.md:77,93) — el resto de las 11 columnas del
+# export Barchart se ignora sin mapear. Si una etapa futura (E9+) filtra por columnas
+# nuevas, ampliar este map y _REQUIRED_COLUMNS a la vez.
 COLUMN_ALIASES: dict[str, str] = {
     "Symbol": "ticker",
     "5D Avg Vol": "avg_vol_5d",
@@ -76,8 +80,16 @@ class UniverseSpec:
         df["avg_vol_5d"] = pd.to_numeric(df["avg_vol_5d"], errors="raise")
         df["price"] = pd.to_numeric(df["price"], errors="raise")
 
-        # Filtro declarativo sobre alias normalizados
-        df = df.query(self.filter_expr)
+        # Filtro declarativo sobre alias normalizados. Nota (#13 triaje E1–E8):
+        # _REQUIRED_COLUMNS no se deriva de filter_expr — un filtro sobre una columna sin
+        # alias mapeado recién falla aquí; se envuelve con contexto para diagnóstico.
+        try:
+            df = df.query(self.filter_expr)
+        except Exception as exc:
+            raise ValueError(
+                f"filter_expr inválido para '{self.universe_key}': {self.filter_expr!r} "
+                f"(columnas disponibles: {df.columns.tolist()}): {exc}"
+            ) from exc
 
         # Orden alfabético: garantiza reproducibilidad entre runs con el mismo CSV
         df = df.sort_values("ticker")
