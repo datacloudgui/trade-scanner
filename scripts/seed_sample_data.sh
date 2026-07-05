@@ -49,23 +49,31 @@ fetch "daily/spy.zip"
 fetch "map_files/spy.csv"
 fetch "factor_files/spy.csv"
 
-# Universo dev multi-símbolo (Etapa 5B T5.1): daily + map/factor de AAPL/IBM/FB.
-# FB solo tiene historia propia desde la IPO 2012 → M:200 no-ready (decisión 2026-06-11).
-for sym in aapl ibm fb; do
-  fetch "daily/${sym}.zip"
-  fetch "map_files/${sym}.csv"
-done
-# factor_files reales del repo LEAN para FB (zip LEAN, OK usar factores reales).
+# Universo dev multi-símbolo (Etapa 5B T5.1). FB: zip + factor files REALES del repo
+# LEAN (par coherente entre sí). FB solo tiene historia propia desde la IPO 2012 →
+# M:200 no-ready (decisión 2026-06-11).
+fetch "daily/fb.zip"
+fetch "map_files/fb.csv"
 fetch "factor_files/fb.csv"
 
-# factor_files NEUTROS para AAPL/IBM (Etapa 5B T5.3): sus zips provienen del converter
-# Stooq (split-only adjusted, sin dividendos — descargados con "skip dividends").
-# Usar los factores reales del repo LEAN causaría doble ajuste. factor=1 → LEAN sirve
-# los precios tal cual, sin re-ajustar. Stooq split-only + factor=1 es coherente con
+# AAPL/IBM (#17 triaje E1–E8 — coherencia fuente↔factor): sus zips diarios provienen
+# del converter Stooq (scripts/stooq_to_lean.py; precios split-only adjusted, sin
+# dividendos) y por eso exigen factor files NEUTROS (factor=1 → LEAN sirve los precios
+# tal cual; los factores reales de LEAN causarían doble ajuste). Bajar aquí el zip del
+# repo LEAN sería INCOHERENTE con esos factores (precios raw + factor=1 = splits sin
+# ajustar → SMAs mal). Este script ya NO baja esos zips: si faltan, avisa y deja el
+# paso al converter. Stooq split-only + factor=1 es coherente con
 # DataNormalizationMode.SPLIT_ADJUSTED y con TradingView vista "Adjusted".
 for sym_date in "aapl:19840907" "ibm:19620102"; do
   sym="${sym_date%%:*}"
   first_date="${sym_date##*:}"
+  fetch "map_files/${sym}.csv"
+  if [[ ! -f "$DATA_DIR/daily/${sym}.zip" ]]; then
+    echo "  ADVERTENCIA: falta daily/${sym}.zip — generarlo con el converter Stooq"
+    echo "               (scripts/stooq_to_lean.py); NO se baja del repo LEAN (precios raw"
+    echo "               incompatibles con los factor files neutros de abajo)"
+    continue
+  fi
   dest="$DATA_DIR/factor_files/${sym}.csv"
   echo "  factor_files/${sym}.csv → neutro (${first_date},1,1,1)"
   printf "%s,1,1,1\n" "$first_date" > "$dest"

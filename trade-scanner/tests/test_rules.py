@@ -132,6 +132,13 @@ def test_invalid_side_raises_at_construction():
         SMAPositionRule(20, ["D"], buckets_allowed=ABOVE, side="sideways")
 
 
+# (#18 triaje E1–E8) tfs=[] → ValueError en construcción: con tfs vacío evaluate() no
+# itera y devolvería passed=True con evidencia {} — pasaría TODO en silencio.
+def test_empty_tfs_raises_at_construction():
+    with pytest.raises(ValueError, match="tfs no vacío"):
+        SMAPositionRule(20, [], buckets_allowed=ABOVE, side="above")
+
+
 # (e) Los 7 buckets son un buckets_allowed válido; el mirror a short sigue ⊆ BUCKETS
 def test_all_seven_buckets_allowed_is_valid_both_sides():
     assert SMAPositionRule(20, ["D"], set(BUCKETS), side="above").buckets_allowed == frozenset(BUCKETS)

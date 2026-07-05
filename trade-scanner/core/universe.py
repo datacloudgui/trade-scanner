@@ -19,6 +19,11 @@ _TICKER_RE = r"^[A-Z]{1,5}$"
 _PCT_COLUMNS = {"pct_chg_5d", "pct_chg_1d"}
 _REQUIRED_COLUMNS = {"avg_vol_5d", "price"}
 
+# Tope duro de producto (CLAUDE.md / PLAN §5): ≤200 tickers post-filtro. Se aplica en
+# código (#11 triaje E1–E8): un max_universe mal configurado (>200) solo puede BAJAR
+# el límite, nunca superarlo.
+_HARD_CAP = 200
+
 
 def _parse_pct(val: str) -> float:
     return float(str(val).strip().lstrip("+").rstrip("%")) / 100.0
@@ -33,7 +38,12 @@ class UniverseSpec:
     ) -> None:
         self.universe_key = universe_key
         self.filter_expr = filter_expr
-        self.max_tickers = max_tickers
+        if max_tickers > _HARD_CAP:
+            print(
+                f"[UniverseSpec] WARNING: max_tickers={max_tickers} excede el tope duro "
+                f"{_HARD_CAP} (CLAUDE.md/PLAN §5); se usa {_HARD_CAP}"
+            )
+        self.max_tickers = min(max_tickers, _HARD_CAP)
 
     def load(self, object_store) -> list[str]:
         """Lee, parsea, filtra y devuelve lista de tickers (≤ max_tickers).

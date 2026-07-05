@@ -443,6 +443,40 @@ def test_resolve_rejects_disordered_thresholds(bad):
         resolve_bucket_thresholds({"bucket_thresholds": bad}, "swing_eod")
 
 
+# ---------------------------------------------------------------------------
+# #19 (triaje E1–E8) — config malformada (ObjectStore editable) debe caer en ValueError
+# claro: mapping validado, valores casteados a float, bool/NaN/inf rechazados.
+# ---------------------------------------------------------------------------
+
+# strings numéricos de un JSON editado a mano se toleran casteando a float
+def test_resolve_casts_numeric_strings_to_float():
+    config = {"bucket_thresholds": {"near": "0.005", "mild": "0.03", "extended": "0.10"}}
+    resolved = resolve_bucket_thresholds(config, "swing_eod")
+    assert resolved == {"near": 0.005, "mild": 0.03, "extended": 0.10}
+    assert all(isinstance(v, float) for v in resolved.values())
+
+
+@pytest.mark.parametrize(
+    "bad_value",
+    [True, False, "abc", None, [0.005], {"x": 1}, float("nan"), float("inf"), "-inf"],
+)
+def test_resolve_rejects_non_numeric_bool_nan_inf(bad_value):
+    config = {"bucket_thresholds": {"near": bad_value, "mild": 0.03, "extended": 0.10}}
+    with pytest.raises(ValueError, match="near"):
+        resolve_bucket_thresholds(config, "swing_eod")
+
+
+# bucket_thresholds truthy pero no-dict (global o de estrategia) → ValueError, no AttributeError
+@pytest.mark.parametrize("bad_block", [[0.005, 0.03], "0.005", 42])
+def test_resolve_rejects_non_mapping_thresholds_block(bad_block):
+    with pytest.raises(ValueError, match="bucket_thresholds"):
+        resolve_bucket_thresholds({"bucket_thresholds": bad_block}, "swing_eod")
+    with pytest.raises(ValueError, match="bucket_thresholds"):
+        resolve_bucket_thresholds(
+            {"strategies": {"swing_eod": {"bucket_thresholds": bad_block}}}, "swing_eod"
+        )
+
+
 # La validación corre sobre el resultado del MERGE: un override válido-en-aislamiento
 # que rompe el orden contra el global resto se rechaza igual.
 def test_resolve_override_can_trigger_validation():

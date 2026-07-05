@@ -4,6 +4,7 @@ Negocio puro, importable sin CLR (patrón universe): cero AlgorithmImports.
 L3 solo lee estado ya calculado por SymbolData (L2) — nunca pide datos ni
 calcula indicadores.
 """
+import math
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -241,6 +242,41 @@ def snapshot_evidence(
     return evidence
 
 
+def _validated_mapping(raw: object, scope: str, strategy_name: str) -> dict:
+    """`bucket_thresholds` de config debe ser mapping (o ausente/None → `{}`). #19."""
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise ValueError(
+            f"bucket_thresholds ({scope}, estrategia '{strategy_name}') debe ser un "
+            f"objeto {{near, mild, extended}}; got {type(raw).__name__}: {raw!r}"
+        )
+    return raw
+
+
+def _threshold_as_float(raw: object, key: str, strategy_name: str) -> float:
+    """Castea un corte a `float` rechazando bool/NaN/inf/no-numérico con ValueError claro. #19.
+
+    Acepta int/float/str numérico ("0.005" de un JSON editado a mano se tolera casteando);
+    bool se rechaza explícito (en Python `True` es int y colaría como 1.0).
+    """
+    if isinstance(raw, bool):
+        raise ValueError(
+            f"bucket_thresholds['{key}'] para '{strategy_name}' no puede ser bool: {raw!r}"
+        )
+    try:
+        value = float(raw)  # type: ignore[arg-type]
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"bucket_thresholds['{key}'] para '{strategy_name}' no es numérico: {raw!r}"
+        ) from exc
+    if not math.isfinite(value):
+        raise ValueError(
+            f"bucket_thresholds['{key}'] para '{strategy_name}' debe ser finito: {raw!r}"
+        )
+    return value
+
+
 def resolve_bucket_thresholds(
     full_config: dict, strategy_name: str
 ) -> dict[str, float]:
@@ -254,12 +290,23 @@ def resolve_bucket_thresholds(
 
     Valida `0 < near < mild < extended` sobre el resultado: la resolución de config
     es el único punto de control (un chequeo), no el hot path `_bucketize` (por símbolo×tf).
+
+    #19 triaje E1–E8 — la config vive en ObjectStore (editable a mano): se valida que cada
+    `bucket_thresholds` sea un mapping y cada valor se castea a `float` rechazando
+    bool/NaN/inf, para que la config malformada caiga en `ValueError` claro, no en
+    `TypeError`/`AttributeError` opacos.
     """
-    global_th = full_config.get("bucket_thresholds") or {}
+    global_th = _validated_mapping(
+        full_config.get("bucket_thresholds"), "global", strategy_name
+    )
     strategy_block = full_config.get("strategies", {}).get(strategy_name, {})
-    strategy_th = strategy_block.get("bucket_thresholds") or {}
+    strategy_th = _validated_mapping(
+        strategy_block.get("bucket_thresholds"), "estrategia", strategy_name
+    )
     resolved = {
-        key: strategy_th.get(key, global_th.get(key, default))
+        key: _threshold_as_float(
+            strategy_th.get(key, global_th.get(key, default)), key, strategy_name
+        )
         for key, default in DEFAULT_BUCKET_THRESHOLDS.items()
     }
     if not 0 < resolved["near"] < resolved["mild"] < resolved["extended"]:

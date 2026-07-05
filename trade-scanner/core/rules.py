@@ -44,6 +44,12 @@ class SMAPositionRule:
         required: bool = True,
         label: str = "SMA",
     ) -> None:
+        if not tfs:
+            # #18 triaje E1–E8: con tfs=[] evaluate() no itera y devolvería passed=True con
+            # evidencia vacía — una rule mal compuesta dejaría pasar TODO en silencio.
+            raise ValueError(
+                f"SMAPositionRule({label!r}, period={period}) requiere tfs no vacío"
+            )
         unknown = set(buckets_allowed) - set(BUCKETS)
         if unknown:
             raise ValueError(

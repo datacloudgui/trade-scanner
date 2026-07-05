@@ -12,6 +12,12 @@ EXPECTED_COLUMNS = [
     "%Change", "5D Chg", "5D High", "5D Low", "5D Avg Vol", "Time",
 ]
 SYMBOL_RE = re.compile(r"^[A-Z]{1,5}$")
+# Footer real de Barchart: una fila cuyo primer campo es
+#   "Downloaded from Barchart.com as of MM-DD-YYYY ..."
+# Se detecta por patrón (#8 triaje E1–E8), NO por "símbolo inválido": si el footer se
+# detectara por SYMBOL_RE, cualquier ticker no estándar (BRK.B) quedaría oculto como
+# footer y la sección de símbolos no estándar saldría siempre vacía.
+FOOTER_RE = re.compile(r"downloaded from barchart", re.IGNORECASE)
 PERCENT_COLUMNS = ["5D %Chg", "%Change"]
 NUMERIC_COLUMNS = ["Latest", "Change", "5D Chg", "5D High", "5D Low", "5D Avg Vol"]
 VOL_THRESHOLDS = [100_000, 500_000, 1_000_000, 5_000_000, 10_000_000]
@@ -29,6 +35,23 @@ def parse_numeric(value: str) -> float | None:
         return float(value.strip().replace(",", ""))
     except (ValueError, AttributeError):
         return None
+
+
+def classify_rows(raw_rows: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Separa filas de datos y footer Barchart (por patrón, no por forma del símbolo).
+
+    Devuelve `(data_rows, footer_rows)`. Los tickers no estándar (BRK.B, etc.) quedan
+    en `data_rows` para que la sección 4 los reporte.
+    """
+    data_rows: list[dict] = []
+    footer_rows: list[dict] = []
+    for row in raw_rows:
+        joined = " ".join(str(v) for v in row.values() if v)
+        if FOOTER_RE.search(joined):
+            footer_rows.append(row)
+        else:
+            data_rows.append(row)
+    return data_rows, footer_rows
 
 
 def run(csv_path: str) -> None:
@@ -49,15 +72,8 @@ def run(csv_path: str) -> None:
 
     total_raw = len(raw_rows)
 
-    # --- Detección de footer (símbolo inválido) ---
-    data_rows = []
-    footer_rows = []
-    for row in raw_rows:
-        sym = row.get("Symbol", "").strip()
-        if SYMBOL_RE.match(sym):
-            data_rows.append(row)
-        else:
-            footer_rows.append(row)
+    # --- Detección de footer (patrón Barchart, #8) ---
+    data_rows, footer_rows = classify_rows(raw_rows)
 
     # --- Sección 1: estructura general ---
     print(f"\n--- Estructura general ---")
@@ -90,9 +106,14 @@ def run(csv_path: str) -> None:
             parsed = [parse_percent(v) for v in values_raw if v != ""]
             valid = [v for v in parsed if v is not None]
             samples = [v for v in values_raw if v != ""][:3]
-            print(f"  {col:15s} | tipo: percent% → float | nulos: {nulls} | "
-                  f"rango: [{min(valid)*100:.2f}%, {max(valid)*100:.2f}%] | "
-                  f"muestras crudas: {samples}")
+            # Guard #9: columna vacía/sucia → diagnosticar, no abortar con min([]).
+            if valid:
+                print(f"  {col:15s} | tipo: percent% → float | nulos: {nulls} | "
+                      f"rango: [{min(valid)*100:.2f}%, {max(valid)*100:.2f}%] | "
+                      f"muestras crudas: {samples}")
+            else:
+                print(f"  {col:15s} | tipo: percent% → float | nulos: {nulls} | "
+                      f"sin valores válidos")
 
         elif col in NUMERIC_COLUMNS:
             parsed = [parse_numeric(v) for v in values_raw if v != ""]
