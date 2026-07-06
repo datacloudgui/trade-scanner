@@ -1,6 +1,8 @@
 {
     "algorithm-language": "Python",
-    "parameters": {"env": "dev"},
+    "parameters": {
+        "env": "prod"
+    },
     "description": "",
     "local-id": 644490384
 }

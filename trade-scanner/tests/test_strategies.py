@@ -90,8 +90,8 @@ def test_build_rules_invalid_side_raises():
 # (a) build_rules("above"): 3 rules canónicas con names exactos, en orden
 def test_swing_eod_above_rule_names():
     assert [r.name for r in swing_eod.build_rules("above")] == [
-        "AboveSMA(20,W+M)",
-        "AboveSMA(20,D)",
+        "AboveSMA(20,D+W+M)",
+        "AboveSMA(8,D)",
         "NotExtended(8,D)",
     ]
 
@@ -99,10 +99,10 @@ def test_swing_eod_above_rule_names():
 # (a) build_rules("below"): names espejados + buckets espejados (NotExtended excluye extended_below)
 def test_swing_eod_below_rule_names_and_mirror():
     rules = swing_eod.build_rules("below")
-    assert [r.name for r in rules] == ["BelowSMA(20,W+M)", "BelowSMA(20,D)", "NotExtended(8,D)"]
+    assert [r.name for r in rules] == ["BelowSMA(20,D+W+M)", "BelowSMA(8,D)", "NotExtended(8,D)"]
     below = frozenset({"below_mild", "below_strong", "extended_below"})
-    assert rules[0].buckets_allowed == below  # W+M: ABOVE espejado
-    assert rules[1].buckets_allowed == below  # D
+    assert rules[0].buckets_allowed == below  # D+W+M: ABOVE espejado
+    assert rules[1].buckets_allowed == below  # 8,D
     assert "extended_below" not in rules[2].buckets_allowed  # NotExtended short
     assert "extended_above" in rules[2].buckets_allowed      # su espejo sí permitido
 

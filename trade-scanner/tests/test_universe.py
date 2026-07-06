@@ -5,17 +5,26 @@ Fixture base: MockObjectStore retorna CSV sintético construido en el test.
 """
 import pytest
 
-from core.universe import UniverseSpec
+from core.universe import UniverseSpec, _PERIOD_VOL_COLS
 
-_HEADER = 'Symbol,Name,"5D %Chg",Latest,Change,%Change,"5D Chg","5D High","5D Low","5D Avg Vol",Time'
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+def _header(vol_col: str = "5D Avg Vol", pct_col: str = "5D %Chg") -> str:
+    return f'Symbol,Name,"{pct_col}",Latest,Change,%Change,"{vol_col}",Time'
 
 
-def _row(symbol: str, price: float, vol: float, pct5d: str = "+5.00%", pct1d: str = "+1.00%") -> str:
-    return f"{symbol},Test Corp,{pct5d},{price},0.5,{pct1d},0.5,{price},{price},{vol:.0f},2026-06-05"
+def _row(
+    symbol: str,
+    price: float,
+    vol: float,
+    pct_period: str = "+5.00%",
+    pct1d: str = "+1.00%",
+) -> str:
+    return f"{symbol},Test Corp,{pct_period},{price},0.5,{pct1d},{vol:.0f},2026-06-05"
 
 
-def _csv(*rows: str) -> str:
-    return "\n".join([_HEADER] + list(rows))
+def _csv(*rows: str, vol_col: str = "5D Avg Vol", pct_col: str = "5D %Chg") -> str:
+    return "\n".join([_header(vol_col, pct_col)] + list(rows))
 
 
 class MockObjectStore:
@@ -31,8 +40,9 @@ class RaisingObjectStore:
         raise KeyError(f"Object with path '{key}' was not found in the Object Store")
 
 
-FILTER = "avg_vol_5d > 1e6 and price > 5"
+FILTER = "avg_vol > 1e6 and price > 5"
 
+# ── Tests base ────────────────────────────────────────────────────────────────
 
 # T3.1 — El filtro funciona con alias normalizados
 def test_filter_returns_matching_tickers():
@@ -72,13 +82,13 @@ def test_footer_strip_excludes_non_ticker_rows():
     assert "Downloaded" not in " ".join(result)
 
 
-# T3.4 — Columna requerida faltante lanza error con mensaje claro
-def test_missing_required_column_raises_key_error():
-    # CSV sin la columna "5D Avg Vol" → avg_vol_5d no aparece tras el rename
-    header_no_vol = 'Symbol,Name,"5D %Chg",Latest,Change,%Change,"5D Chg","5D High","5D Low",Time'
-    row = "AAA,Test Corp,+5.00%,10.0,0.5,+1.00%,0.5,10.0,10.0,2026-06-05"
-    csv = header_no_vol + "\n" + row
-    with pytest.raises(KeyError, match="avg_vol_5d"):
+# T3.4 — CSV sin ninguna columna de volumen conocida → error descriptivo
+def test_missing_vol_column_raises_with_descriptive_message():
+    # CSV con columna de volumen desconocida ("YTD Avg Vol" no está en _PERIOD_VOL_COLS)
+    header_unknown_vol = 'Symbol,Name,"YTD %Chg",Latest,Change,%Change,"YTD Avg Vol",Time'
+    row = "AAA,Test Corp,+5.00%,10.0,0.5,+1.00%,2000000,2026-06-05"
+    csv = header_unknown_vol + "\n" + row
+    with pytest.raises(KeyError, match="columna de volumen"):
         UniverseSpec("k", FILTER).load(MockObjectStore(csv))
 
 
@@ -86,6 +96,51 @@ def test_missing_required_column_raises_key_error():
 def test_object_store_key_not_found_propagates():
     with pytest.raises(KeyError):
         UniverseSpec("universes/missing.csv", FILTER).load(RaisingObjectStore())
+
+
+# ── Auto-detect de periodo (1D / 5D / 1M / 3M) ───────────────────────────────
+
+_PERIOD_PARAMS = [
+    ("1D Avg Vol", "1D %Chg"),
+    ("5D Avg Vol", "5D %Chg"),
+    ("1M Avg Vol", "1M %Chg"),
+    ("3M Avg Vol", "3M %Chg"),
+]
+
+
+@pytest.mark.parametrize("vol_col,pct_col", _PERIOD_PARAMS)
+def test_autodetect_period_schema(vol_col: str, pct_col: str):
+    """Todas las vistas de Barchart (1D/5D/1M/3M) deben cargar sin error."""
+    csv = _csv(
+        _row("AAA", price=10.0, vol=2_000_000),
+        _row("BBB", price=3.0,  vol=2_000_000),   # falla price
+        _row("CCC", price=10.0, vol=500_000),       # falla vol
+        vol_col=vol_col,
+        pct_col=pct_col,
+    )
+    result = UniverseSpec("k", FILTER).load(MockObjectStore(csv))
+    assert result == ["AAA"]
+
+
+@pytest.mark.parametrize("vol_col,pct_col", _PERIOD_PARAMS)
+def test_autodetect_maps_to_canonical_avg_vol(vol_col: str, pct_col: str):
+    """El filtro usa 'avg_vol' (canónico); debe funcionar igual en todos los periodos."""
+    csv = _csv(
+        _row("ZZZ", price=20.0, vol=5_000_000),
+        vol_col=vol_col,
+        pct_col=pct_col,
+    )
+    result = UniverseSpec("k", "avg_vol > 1e6 and price > 5").load(MockObjectStore(csv))
+    assert result == ["ZZZ"]
+
+
+# ── Separadores de miles de Barchart ─────────────────────────────────────────
+
+# 9A/T5 — Barchart formatea %Chg grandes y volúmenes con separador de miles (quoted).
+def test_thousands_separator_in_pct_and_volume_parses():
+    row = 'CAST,"Freecast Inc","+1,153.11%",8.07,2.92,+56.70%,"101,584,617",2026-06-18'
+    result = UniverseSpec("k", FILTER).load(MockObjectStore(_csv(row)))
+    assert result == ["CAST"]  # vol 101.5M > 1e6 y price 8.07 > 5 → pasa sin error de float
 
 
 # ─────────────────────────────────────────────────────────────────────────────

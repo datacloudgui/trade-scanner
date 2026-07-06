@@ -29,12 +29,12 @@ from __future__ import annotations
 import argparse
 import csv
 import io
-import zipfile
 from pathlib import Path
+
+from lean_daily import to_lean_rows, write_lean_zip  # emisor LEAN compartido (D9A.3)
 
 # Header canónico de Stooq daily; comparamos en minúsculas para tolerar variaciones.
 _STOOQ_COLS = {"date", "open", "high", "low", "close", "volume"}
-_PRICE_SCALE = 10000  # LEAN: precios en deci-centavos enteros.
 
 
 class ConvertError(ValueError):
@@ -78,33 +78,6 @@ def parse_stooq_csv(text: str) -> list[tuple[str, float, float, float, float, in
 
     rows.sort(key=lambda r: r[0])  # ascendente por fecha, sin asumir orden de origen
     return rows
-
-
-def to_lean_rows(rows: list[tuple[str, float, float, float, float, int]]) -> list[str]:
-    """Filas Stooq parseadas → líneas en formato LEAN daily (deci-centavos enteros)."""
-    out: list[str] = []
-    for date, o, h, low, c, v in rows:
-        stamp = date.replace("-", "")  # YYYY-MM-DD → YYYYMMDD
-        out.append(
-            f"{stamp} 00:00,"
-            f"{round(o * _PRICE_SCALE)},"
-            f"{round(h * _PRICE_SCALE)},"
-            f"{round(low * _PRICE_SCALE)},"
-            f"{round(c * _PRICE_SCALE)},"
-            f"{v}"
-        )
-    return out
-
-
-def write_lean_zip(symbol: str, lean_rows: list[str], out_dir: Path) -> Path:
-    """Escribe `<sym>.csv` dentro de `<sym>.zip` en out_dir (nombres en minúsculas)."""
-    sym = symbol.lower()
-    out_dir.mkdir(parents=True, exist_ok=True)
-    zip_path = out_dir / f"{sym}.zip"
-    body = "\n".join(lean_rows) + "\n"
-    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr(f"{sym}.csv", body)
-    return zip_path
 
 
 def convert(input_csv: Path, symbol: str, out_dir: Path) -> Path:

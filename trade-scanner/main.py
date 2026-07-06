@@ -24,19 +24,32 @@ class Tradescanner(QCAlgorithm):
     manual (T2.2, D4; flag validate_warmup). Features y rules (Etapas 6+) llegan después."""
 
     def initialize(self):
-        # Ventana 2013-10 (Etapa 7/T5): única con datos minute (SPY sample del repo LEAN).
-        # SPY ejercita el working_bar; AAPL/IBM/FB no tienen minute aquí → caen al fallback
-        # close("D") (C2). SPY M:200 no calienta del todo (~3970 barras pre-2013 < 4221) pero
-        # M:200 no la referencia ninguna rule. FB (IPO 2012) tiene M:20 frío → gate B lo excluye.
-        self.set_start_date(2013, 10, 7)
-        self.set_end_date(2013, 10, 11)
+        env = self.get_parameter("env", "prod")
+
+        # Rango del backtest por entorno (consideración: "el reloj necesita datos en el rango").
+        # dev: ventana 2013-10, única con datos minute (SPY sample del repo LEAN) → SPY ejercita
+        #   el working_bar; AAPL/IBM/FB sin minute caen al fallback close("D") (C2).
+        # prod (9A): historia diaria real (zips locales, 2020+) → rango reciente con runway
+        #   suficiente para el warmup DAILY (set_warm_up bajo budget). Sin minute para los tickers
+        #   del universo: el working_bar intradía es la rebanada live (T9), no esta corrida.
+        if env == "dev":
+            self.set_start_date(2013, 10, 7)
+            self.set_end_date(2013, 10, 11)
+        else:
+            self.set_start_date(2026, 1, 2)
+            self.set_end_date(2026, 7, 3)
         self.set_cash(100000)
+
+        # Resolución de suscripción por entorno (⟂ resolución de warmup, que es DAILY siempre, 5A T3.9):
+        # dev usa MINUTE (sample SPY) para ejercitar el working_bar intradía; prod usa DAILY porque
+        # los datos reales de 9A son diarios (sin minute) — el reloj avanza por barra diaria y los
+        # ScheduledEvents after_close disparan. El working_bar minute real es la rebanada live (T9).
+        self._feed_resolution = Resolution.MINUTE if env == "dev" else Resolution.DAILY
 
         # Config de negocio desde ObjectStore (key = ruta relativa bajo storage/).
         raw = self.object_store.read("config/strategies.json")
         full_config = json.loads(raw)
 
-        env = self.get_parameter("env", "prod")
         env_cfg = full_config["environments"][env]
         top_n = env_cfg["top_n"]
         max_universe = env_cfg["max_universe"]
@@ -86,7 +99,7 @@ class Tradescanner(QCAlgorithm):
             # resolución de warmup (5A T3.9). El consolidator diario se cabla a esta suscripción.
             symbol = self.add_equity(
                 ticker,
-                Resolution.MINUTE,
+                self._feed_resolution,
                 data_normalization_mode=DataNormalizationMode.SPLIT_ADJUSTED,
             ).symbol
             sd = SymbolData(symbol, self._requirements)

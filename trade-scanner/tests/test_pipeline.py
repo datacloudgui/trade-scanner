@@ -218,8 +218,10 @@ def test_only_symbols_passing_all_required_become_results():
         _as_map([_ok(), _fails_above_d(), _fails_not_extended()]), "t0"
     )
     assert [r.ticker for r in results] == ["AAA"]
-    assert results[0].rules_passed_count == 3
-    assert results[0].passed_rules == ["AboveSMA(20,W+M)", "AboveSMA(20,D)", "NotExtended(8,D)"]
+    # count = solo rules REQUIRED que pasaron (AboveSMA(8,D) es required=False → no cuenta);
+    # passed_rules lista TODAS las que pasaron, incluida la opcional.
+    assert results[0].rules_passed_count == 2
+    assert results[0].passed_rules == ["AboveSMA(20,D+W+M)", "AboveSMA(8,D)", "NotExtended(8,D)"]
 
 
 # (c) embudo: format_filter_line por rule (cascada) + format_final_line; arranca tras gate+ranking
@@ -229,8 +231,8 @@ def test_funnel_cascade_lines():
         _as_map([_ok(), _fails_above_d(), _fails_not_extended()]), "t0", log=log.append
     )
     assert log == [
-        "[swing_eod] AboveSMA(20,W+M): 3 → 3 (−0 required)",
-        "[swing_eod] AboveSMA(20,D): 3 → 2 (−1 required)",
+        "[swing_eod] AboveSMA(20,D+W+M): 3 → 2 (−1 required)",
+        "[swing_eod] AboveSMA(8,D): 2 → 2 (−0 optional)",   # optional: informa sin descartar
         "[swing_eod] NotExtended(8,D): 2 → 1 (−1 required)",
         "[swing_eod] final: 1 candidatos",
     ]
@@ -250,7 +252,7 @@ def test_scanresult_fields_and_single_price_evidence():
     assert res.price == 105.0
     assert res.as_of == "2026-06-19T21:00:00Z"
     assert res.time_frames_evaluated == ["D", "W", "M"]   # orden canónico, no alfabético
-    assert res.rules_passed_count == 3
+    assert res.rules_passed_count == 2   # 2 required (AboveSMA(8,D) es optional → no cuenta)
     # evidencia internamente consistente: value·(1+distance_pct) == el precio único (105) en cada serie
     for periods in res.sma_evidence.values():
         for entry in periods.values():

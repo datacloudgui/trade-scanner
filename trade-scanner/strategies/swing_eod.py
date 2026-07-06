@@ -19,8 +19,8 @@ swing_eod = StrategyConfig(
     name="swing_eod",
     partial_bar=False,
     rules=[
-        lambda side: SMAPositionRule(20, ["W", "M"], ABOVE, side, label="SMA"),
-        lambda side: SMAPositionRule(20, ["D"], ABOVE, side, label="SMA"),
+        lambda side: SMAPositionRule(20, ["D", "W", "M"], ABOVE, side, label="SMA"),
+        lambda side: SMAPositionRule(8, ["D"], ABOVE, side, label="SMA",required=False),
         lambda side: NotExtended(8, "D", side),
     ],
 )

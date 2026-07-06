@@ -63,8 +63,11 @@ La resolución vive en `resolve_bucket_thresholds(full_config, strategy_name)`: 
 devuelve siempre las 3 claves y valida `0 < near < mild < extended` (único punto de control — no el
 hot path `_bucketize`). El dict resuelto viaja a `build_position_snapshot → position_vs_sma → _bucketize`.
 
-> **Convenciones.** Son **fracciones, no porcentajes** (`0.10` = 10%, no `10`). Los valores actuales
-> son **placeholders**; la calibración real es **Etapa 9**. No confundir con `max_extension_pct` (clave
+> **Convenciones.** Son **fracciones de la distancia relativa precio↔SMA**, no porcentajes ni valores
+> absolutos: se comparan contra `distance_pct = (price - sma) / sma`, así que `0.10` = "el precio está
+> al 10% de la media", no `10` ni $10. Son **magnitudes sin signo** (el signo de `distance_pct` decide
+> above/below; los cortes son simétricos por espejo, `near` autoespejo). Los valores actuales son
+> **placeholders**; la calibración real es **Etapa 9**. No confundir con `max_extension_pct` (clave
 > redundante retirada en 6B/T5, D6B.8): el corte "extendido" único es `bucket_thresholds.extended`.
 
 ---

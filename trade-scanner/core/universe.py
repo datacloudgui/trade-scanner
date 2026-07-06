@@ -11,17 +11,21 @@ import pandas as pd
 # a las columnas que el screener usa (etapa-04.md:77,93) — el resto de las 11 columnas del
 # export Barchart se ignora sin mapear. Si una etapa futura (E9+) filtra por columnas
 # nuevas, ampliar este map y _REQUIRED_COLUMNS a la vez.
+# Columnas fijas de Barchart (no dependen de la vista temporal elegida)
 COLUMN_ALIASES: dict[str, str] = {
     "Symbol": "ticker",
-    "5D Avg Vol": "avg_vol_5d",
     "Latest": "price",
-    "5D %Chg": "pct_chg_5d",
     "%Change": "pct_chg_1d",
 }
 
+# Columnas que varían según la vista de Barchart exportada (1D / 5D / 1M / 3M).
+# Se inspeccionan en orden; la primera que esté presente en el CSV gana.
+_PERIOD_VOL_COLS = ["1D Avg Vol", "5D Avg Vol", "1M Avg Vol", "3M Avg Vol"]
+_PERIOD_PCT_COLS = ["1D %Chg", "5D %Chg", "1M %Chg", "3M %Chg"]
+
 _TICKER_RE = r"^[A-Z]{1,5}$"
-_PCT_COLUMNS = {"pct_chg_5d", "pct_chg_1d"}
-_REQUIRED_COLUMNS = {"avg_vol_5d", "price"}
+_PCT_COLUMNS = {"pct_chg", "pct_chg_1d"}
+_REQUIRED_COLUMNS = {"avg_vol", "price"}
 
 # Tope duro de producto (CLAUDE.md / PLAN §5): ≤200 tickers post-filtro. Se aplica en
 # código (#11 triaje E1–E8): un max_universe mal configurado (>200) solo puede BAJAR
@@ -29,8 +33,26 @@ _REQUIRED_COLUMNS = {"avg_vol_5d", "price"}
 _HARD_CAP = 200
 
 
+def _detect_period_aliases(columns: list[str]) -> dict[str, str]:
+    """Devuelve aliases para las columnas de volumen y cambio % del periodo detectado.
+
+    Soporta exportaciones Barchart de 1D, 5D, 1M y 3M sin config adicional.
+    """
+    aliases: dict[str, str] = {}
+    for col in _PERIOD_VOL_COLS:
+        if col in columns:
+            aliases[col] = "avg_vol"
+            break
+    for col in _PERIOD_PCT_COLS:
+        if col in columns:
+            aliases[col] = "pct_chg"
+            break
+    return aliases
+
+
 def _parse_pct(val: str) -> float:
-    return float(str(val).strip().lstrip("+").rstrip("%")) / 100.0
+    # Barchart formatea porcentajes grandes con separador de miles: "+1,153.11%"
+    return float(str(val).strip().lstrip("+").rstrip("%").replace(",", "")) / 100.0
 
 
 class UniverseSpec:
@@ -60,11 +82,21 @@ class UniverseSpec:
         # Footer strip: descartar filas cuyo Symbol no sea un ticker válido
         df = df[df["Symbol"].astype(str).str.match(_TICKER_RE)].copy()
 
-        # Alias rename: Symbol→ticker, 5D Avg Vol→avg_vol_5d, etc.
-        df = df.rename(columns=COLUMN_ALIASES)
+        # Auto-detectar columnas de periodo (1D/5D/1M/3M) y combinar con aliases fijos
+        period_aliases = _detect_period_aliases(df.columns.tolist())
+        all_aliases = {**COLUMN_ALIASES, **period_aliases}
+        df = df.rename(columns=all_aliases)
 
-        # Verificar columnas requeridas por el filtro declarativo
-        for col in _REQUIRED_COLUMNS:
+        # Verificar que avg_vol quedó mapeada; si no, el CSV tiene un esquema desconocido
+        if "avg_vol" not in df.columns:
+            raise KeyError(
+                f"No se encontró columna de volumen en el CSV. "
+                f"Se esperaba alguna de: {_PERIOD_VOL_COLS}. "
+                f"Columnas presentes: {df.columns.tolist()}"
+            )
+
+        # Verificar resto de columnas requeridas
+        for col in _REQUIRED_COLUMNS - {"avg_vol"}:
             if col not in df.columns:
                 raise KeyError(
                     f"Required column missing after rename: '{col}' "
@@ -76,9 +108,10 @@ class UniverseSpec:
             if col in df.columns:
                 df[col] = df[col].apply(_parse_pct)
 
-        # Convertir numéricas
-        df["avg_vol_5d"] = pd.to_numeric(df["avg_vol_5d"], errors="raise")
-        df["price"] = pd.to_numeric(df["price"], errors="raise")
+        # Convertir numéricas (robusto a separador de miles de Barchart: "1,234,567")
+        for col in ("avg_vol", "price"):
+            cleaned = df[col].astype(str).str.replace(",", "", regex=False)
+            df[col] = pd.to_numeric(cleaned, errors="raise")
 
         # Filtro declarativo sobre alias normalizados. Nota (#13 triaje E1–E8):
         # _REQUIRED_COLUMNS no se deriva de filter_expr — un filtro sobre una columna sin
