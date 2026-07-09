@@ -6,7 +6,7 @@ from collections import deque
 from time import perf_counter
 
 import core
-from core.features import SIDE_BY_DIRECTION, resolve_bucket_thresholds
+from core.features import SIDE_BY_DIRECTION, resolve_bucket_thresholds, resolve_filters
 from core.output import JsonSubscriberSource, OutputSink
 from core.pipeline import ScanPipeline, run_group_scan, validate_series_against_plan
 from core.scheduling import time_rule_for
@@ -53,7 +53,11 @@ class Tradescanner(QCAlgorithm):
         env_cfg = full_config["environments"][env]
         top_n = env_cfg["top_n"]
         max_universe = env_cfg["max_universe"]
-        strategies_config = full_config["strategies"]
+        strategies_config = {
+            name: cfg
+            for name, cfg in full_config["strategies"].items()
+            if cfg.get("enabled", True)
+        }
 
         # Universo efectivo: el override de environment (harness dev, D2) fuerza el
         # universo de TODAS las estrategias; sin override cada una usa el suyo (prod).
@@ -158,13 +162,14 @@ class Tradescanner(QCAlgorithm):
                 self.log(f"[{name}] sin StrategyConfig en STRATEGIES: omitida del scan")
                 continue
             side = SIDE_BY_DIRECTION[cfg["direction"]]
-            series = composition.series(side)
+            filters = resolve_filters(full_config, name)
+            series = composition.series(side, filters)
             validate_series_against_plan(name, series, available_series)
             self.pipelines[name] = ScanPipeline(
                 strategy_name=name,
                 direction=cfg["direction"],
                 side=side,
-                rules=composition.build_rules(side),
+                rules=composition.build_rules(side, filters),
                 series=series,
                 thresholds=resolve_bucket_thresholds(full_config, name),
                 top_n=top_n,

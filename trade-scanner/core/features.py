@@ -315,3 +315,50 @@ def resolve_bucket_thresholds(
             f"0 < near < mild < extended; got {resolved}"
         )
     return resolved
+
+
+def resolve_filters(
+    full_config: dict, strategy_name: str
+) -> dict[tuple[str, int], frozenset[str]]:
+    """Resuelve el `buckets_allowed` por (tf, period) de una estrategia (R2, Etapa 10).
+
+    `full_config["strategies"][strategy_name]["filters"]` es un mapping opcional
+    `{"TF:period": [buckets...]}` (p. ej. `"W:20": ["near", "above_mild"]`), vocabulario
+    canónico "above" (el espejo a `side` lo aplica `SMAPositionRule` en construcción, igual
+    que el default hardcodeado). Ausente/None → `{}`: cada rule cae en su default del código
+    (retrocompatible, análoga a `resolve_bucket_thresholds`).
+
+    Valida forma ("TF:period", lista de buckets ⊆ `BUCKETS`) para que una config malformada
+    caiga en `ValueError` claro en initialize(), no en un `KeyError`/`TypeError` opaco a mitad
+    de scan.
+    """
+    strategy_block = full_config.get("strategies", {}).get(strategy_name, {})
+    raw = strategy_block.get("filters")
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise ValueError(
+            f"filters (estrategia '{strategy_name}') debe ser un objeto "
+            f"{{'TF:period': [buckets...]}}; got {type(raw).__name__}: {raw!r}"
+        )
+    resolved: dict[tuple[str, int], frozenset[str]] = {}
+    for key, buckets in raw.items():
+        tf, sep, period_str = key.partition(":")
+        if not sep or not tf or not period_str.isdigit():
+            raise ValueError(
+                f"filters['{key}'] (estrategia '{strategy_name}') clave inválida; "
+                f"formato esperado 'TF:period', ej. 'W:20'"
+            )
+        if not isinstance(buckets, list):
+            raise ValueError(
+                f"filters['{key}'] (estrategia '{strategy_name}') debe ser una lista de "
+                f"buckets; got {type(buckets).__name__}: {buckets!r}"
+            )
+        unknown = set(buckets) - set(BUCKETS)
+        if unknown:
+            raise ValueError(
+                f"filters['{key}'] (estrategia '{strategy_name}') con buckets desconocidos: "
+                f"{sorted(unknown)}; válidos: {list(BUCKETS)}"
+            )
+        resolved[(tf, int(period_str))] = frozenset(buckets)
+    return resolved

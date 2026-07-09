@@ -29,6 +29,7 @@ from core.features import (
     position_vs_sma,
     reference_price,
     resolve_bucket_thresholds,
+    resolve_filters,
     snapshot_evidence,
 )
 
@@ -486,6 +487,83 @@ def test_resolve_override_can_trigger_validation():
     }
     with pytest.raises(ValueError):
         resolve_bucket_thresholds(config, "swing_eod")
+
+
+# ---------------------------------------------------------------------------
+# R2 (Etapa 10) — resolve_filters: buckets_allowed por (tf, period) desde config `filters`.
+# ---------------------------------------------------------------------------
+
+# ausente/None → {} (retrocompatible: cada rule usa su default del código)
+def test_resolve_filters_absent_returns_empty_dict():
+    assert resolve_filters({}, "swing_eod") == {}
+    assert resolve_filters({"strategies": {"swing_eod": {}}}, "swing_eod") == {}
+    assert (
+        resolve_filters({"strategies": {"swing_eod": {"filters": None}}}, "swing_eod") == {}
+    )
+
+
+# parsea "TF:period" → (tf, period) y castea la lista de buckets a frozenset
+def test_resolve_filters_parses_keys_and_casts_to_frozenset():
+    config = {
+        "strategies": {
+            "swing_eod": {
+                "filters": {
+                    "W:8": ["near"],
+                    "W:20": ["near", "above_mild"],
+                    "D:20": ["above_mild", "above_strong", "extended_above"],
+                }
+            }
+        }
+    }
+    resolved = resolve_filters(config, "swing_eod")
+    assert resolved == {
+        ("W", 8): frozenset({"near"}),
+        ("W", 20): frozenset({"near", "above_mild"}),
+        ("D", 20): frozenset({"above_mild", "above_strong", "extended_above"}),
+    }
+    assert isinstance(resolved[("W", 8)], frozenset)
+
+
+# una estrategia sin bloque filters (o distinta de la pedida) no contamina el resultado
+def test_resolve_filters_scoped_to_strategy_name():
+    config = {
+        "strategies": {
+            "swing_eod": {"filters": {"D:20": ["near"]}},
+            "market_close": {},
+        }
+    }
+    assert resolve_filters(config, "market_close") == {}
+    assert resolve_filters(config, "nonexistent") == {}
+
+
+# buckets desconocidos (fuera de BUCKETS) → ValueError claro, no KeyError silencioso aguas abajo
+def test_resolve_filters_rejects_unknown_bucket():
+    config = {"strategies": {"swing_eod": {"filters": {"D:20": ["not_a_bucket"]}}}}
+    with pytest.raises(ValueError, match="not_a_bucket"):
+        resolve_filters(config, "swing_eod")
+
+
+# clave mal formada ("sin ':'", tf vacío, period no numérico) → ValueError claro
+@pytest.mark.parametrize("bad_key", ["D20", ":20", "D:", "D:veinte", "D:20:30"])
+def test_resolve_filters_rejects_malformed_key(bad_key):
+    config = {"strategies": {"swing_eod": {"filters": {bad_key: ["near"]}}}}
+    with pytest.raises(ValueError, match="clave inválida"):
+        resolve_filters(config, "swing_eod")
+
+
+# filters truthy pero no-dict (p. ej. una lista) → ValueError, no AttributeError
+@pytest.mark.parametrize("bad_block", [["D:20"], "D:20", 42])
+def test_resolve_filters_rejects_non_mapping_block(bad_block):
+    config = {"strategies": {"swing_eod": {"filters": bad_block}}}
+    with pytest.raises(ValueError, match="filters"):
+        resolve_filters(config, "swing_eod")
+
+
+# el valor de una clave debe ser una lista (no un string suelto ni un set)
+def test_resolve_filters_rejects_non_list_value():
+    config = {"strategies": {"swing_eod": {"filters": {"D:20": "near"}}}}
+    with pytest.raises(ValueError, match="lista de"):
+        resolve_filters(config, "swing_eod")
 
 
 # ---------------------------------------------------------------------------

@@ -219,9 +219,12 @@ def test_only_symbols_passing_all_required_become_results():
     )
     assert [r.ticker for r in results] == ["AAA"]
     # count = solo rules REQUIRED que pasaron (AboveSMA(8,D) es required=False → no cuenta);
-    # passed_rules lista TODAS las que pasaron, incluida la opcional.
-    assert results[0].rules_passed_count == 2
-    assert results[0].passed_rules == ["AboveSMA(20,D+W+M)", "AboveSMA(8,D)", "NotExtended(8,D)"]
+    # passed_rules lista TODAS las que pasaron, incluida la opcional. R2: SMA20 dividida
+    # por-tf (D/W/M) en vez de una rule multi-tf D+W+M → sube de 2 a 4 required.
+    assert results[0].rules_passed_count == 4
+    assert results[0].passed_rules == [
+        "AboveSMA(20,D)", "AboveSMA(20,W)", "AboveSMA(20,M)", "AboveSMA(8,D)", "NotExtended(8,D)"
+    ]
 
 
 # (c) embudo: format_filter_line por rule (cascada) + format_final_line; arranca tras gate+ranking
@@ -230,8 +233,13 @@ def test_funnel_cascade_lines():
     _pipeline(swing_eod.build_rules("above")).scan(
         _as_map([_ok(), _fails_above_d(), _fails_not_extended()]), "t0", log=log.append
     )
+    # R2: SMA20 dividida por-tf → BBB (D:20 extended_below) ya cae en el primer paso (D), W y M
+    # de BBB no llegan a evaluarse (ya está fuera del funnel); CCC (D:8 extended_above) sobrevive
+    # hasta NotExtended, que es donde queda excluido.
     assert log == [
-        "[swing_eod] AboveSMA(20,D+W+M): 3 → 2 (−1 required)",
+        "[swing_eod] AboveSMA(20,D): 3 → 2 (−1 required)",
+        "[swing_eod] AboveSMA(20,W): 2 → 2 (−0 required)",
+        "[swing_eod] AboveSMA(20,M): 2 → 2 (−0 required)",
         "[swing_eod] AboveSMA(8,D): 2 → 2 (−0 optional)",   # optional: informa sin descartar
         "[swing_eod] NotExtended(8,D): 2 → 1 (−1 required)",
         "[swing_eod] final: 1 candidatos",
@@ -252,7 +260,8 @@ def test_scanresult_fields_and_single_price_evidence():
     assert res.price == 105.0
     assert res.as_of == "2026-06-19T21:00:00Z"
     assert res.time_frames_evaluated == ["D", "W", "M"]   # orden canónico, no alfabético
-    assert res.rules_passed_count == 2   # 2 required (AboveSMA(8,D) es optional → no cuenta)
+    # R2: 4 required (AboveSMA(20,D)+(20,W)+(20,M)+NotExtended; AboveSMA(8,D) es optional → no cuenta)
+    assert res.rules_passed_count == 4
     # evidencia internamente consistente: value·(1+distance_pct) == el precio único (105) en cada serie
     for periods in res.sma_evidence.values():
         for entry in periods.values():

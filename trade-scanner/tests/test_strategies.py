@@ -1,9 +1,10 @@
-"""Tests de strategies/ (Etapa 7).
+"""Tests de strategies/ (Etapa 7; R2 en Etapa 10).
 
 T3.1: StrategyConfig — mecanismo de composición (build_rules above/below con names y espejo,
-series dedup + side-independiente, partial_bar/name, instancias frescas, side inválido). Se
-prueba con un StrategyConfig sintético (rules reales de core/rules.py, pero la estrategia
-concreta swing_eod/market_close es T3.2/T3.3). Sin CLR: L4 es negocio puro.
+series dedup + side-independiente, partial_bar/name, instancias frescas, side inválido,
+flattening de factories multi-rule, propagación de `filters`). Se prueba con un StrategyConfig
+sintético (rules reales de core/rules.py, pero la estrategia concreta swing_eod/market_close es
+T3.2/T3.3). Sin CLR: L4 es negocio puro.
 """
 import pytest
 
@@ -19,14 +20,16 @@ ABOVE = {"above_mild", "above_strong", "extended_above"}
 
 def _sample_config(partial_bar: bool = False) -> StrategyConfig:
     """Config sintética con la forma de swing_eod (T3.2) pero definida aquí: aísla el mecanismo
-    de StrategyConfig de la estrategia concreta. Las `rules` son factories `side -> rule`."""
+    de StrategyConfig de la estrategia concreta. Las `rules` son factories
+    `(side, filters) -> [rule, ...]` (R2); estas ignoran `filters` (siempre defaults) porque el
+    uso real de `filters` se prueba contra swing_eod más abajo."""
     return StrategyConfig(
         name="sample",
         partial_bar=partial_bar,
         rules=[
-            lambda side: SMAPositionRule(20, ["W", "M"], ABOVE, side, label="SMA"),
-            lambda side: SMAPositionRule(20, ["D"], ABOVE, side, label="SMA"),
-            lambda side: NotExtended(8, "D", side),
+            lambda side, f: [SMAPositionRule(20, ["W", "M"], ABOVE, side, label="SMA")],
+            lambda side, f: [SMAPositionRule(20, ["D"], ABOVE, side, label="SMA")],
+            lambda side, f: [NotExtended(8, "D", side)],
         ],
     )
 
@@ -81,16 +84,76 @@ def test_build_rules_invalid_side_raises():
         _sample_config().build_rules("long")
 
 
+# R2: build_rules sin filters (None/ausente) es retrocompatible con el comportamiento pre-R2
+def test_build_rules_without_filters_uses_defaults():
+    cfg = _sample_config()
+    assert [r.name for r in cfg.build_rules("above")] == [
+        r.name for r in cfg.build_rules("above", None)
+    ]
+    assert [r.name for r in cfg.build_rules("above")] == [
+        r.name for r in cfg.build_rules("above", {})
+    ]
+
+
+# R2: una factory que devuelve una LISTA de varias rules se aplana (no queda lista anidada)
+def test_build_rules_flattens_multi_rule_factories():
+    cfg = StrategyConfig(
+        name="multi",
+        partial_bar=False,
+        rules=[
+            lambda side, f: [
+                SMAPositionRule(20, [tf], ABOVE, side, label="SMA") for tf in ("D", "W", "M")
+            ],
+        ],
+    )
+    rules = cfg.build_rules("above")
+    assert [r.name for r in rules] == ["AboveSMA(20,D)", "AboveSMA(20,W)", "AboveSMA(20,M)"]
+
+
+# R2: `filters` se propaga tal cual a cada factory — un override por (tf, period) cambia
+# buckets_allowed de esa rule sin afectar a las demás
+def test_build_rules_propagates_filters_per_series():
+    cfg = StrategyConfig(
+        name="multi",
+        partial_bar=False,
+        rules=[
+            lambda side, f: [
+                SMAPositionRule(20, [tf], f.get((tf, 20), ABOVE), side, label="SMA")
+                for tf in ("D", "W", "M")
+            ],
+        ],
+    )
+    filters = {("W", 20): frozenset({"near"})}
+    rules = cfg.build_rules("above", filters)
+    by_tf = {r.name: r.buckets_allowed for r in rules}
+    assert by_tf["AboveSMA(20,W)"] == frozenset({"near"})       # override aplicado
+    assert by_tf["AboveSMA(20,D)"] == frozenset(ABOVE)          # sin override → default
+    assert by_tf["AboveSMA(20,M)"] == frozenset(ABOVE)          # sin override → default
+
+
+# R2: series(side, filters) también acepta filters (aunque el set de (tf,period) no cambia,
+# solo los buckets_allowed) y sigue siendo side-independiente
+def test_series_accepts_filters_without_changing_the_set():
+    cfg = _sample_config()
+    filters = {("W", 20): frozenset({"near"})}
+    expected = {("D", 8), ("D", 20), ("W", 20), ("M", 20)}
+    assert cfg.series("above", filters) == expected
+    assert cfg.series("below", filters) == expected
+
+
 # ---------------------------------------------------------------------------
 # T3.2 — swing_eod: la StrategyConfig concreta (config real, no el stub sintético).
 # Los asserts pinchan los buckets EXACTOS (no el constante ABOVE) para fijar de verdad
 # el "above estricto" (near excluido) sin re-derivar del mismo símbolo.
 # ---------------------------------------------------------------------------
 
-# (a) build_rules("above"): 3 rules canónicas con names exactos, en orden
+# (a) build_rules("above"): 5 rules canónicas con names exactos, en orden (R2: SMA20 dividida
+# por-tf en D/W/M en vez de una rule multi-tf D+W+M)
 def test_swing_eod_above_rule_names():
     assert [r.name for r in swing_eod.build_rules("above")] == [
-        "AboveSMA(20,D+W+M)",
+        "AboveSMA(20,D)",
+        "AboveSMA(20,W)",
+        "AboveSMA(20,M)",
         "AboveSMA(8,D)",
         "NotExtended(8,D)",
     ]
@@ -99,12 +162,20 @@ def test_swing_eod_above_rule_names():
 # (a) build_rules("below"): names espejados + buckets espejados (NotExtended excluye extended_below)
 def test_swing_eod_below_rule_names_and_mirror():
     rules = swing_eod.build_rules("below")
-    assert [r.name for r in rules] == ["BelowSMA(20,D+W+M)", "BelowSMA(8,D)", "NotExtended(8,D)"]
+    assert [r.name for r in rules] == [
+        "BelowSMA(20,D)",
+        "BelowSMA(20,W)",
+        "BelowSMA(20,M)",
+        "BelowSMA(8,D)",
+        "NotExtended(8,D)",
+    ]
     below = frozenset({"below_mild", "below_strong", "extended_below"})
-    assert rules[0].buckets_allowed == below  # D+W+M: ABOVE espejado
-    assert rules[1].buckets_allowed == below  # 8,D
-    assert "extended_below" not in rules[2].buckets_allowed  # NotExtended short
-    assert "extended_above" in rules[2].buckets_allowed      # su espejo sí permitido
+    assert rules[0].buckets_allowed == below  # 20,D
+    assert rules[1].buckets_allowed == below  # 20,W
+    assert rules[2].buckets_allowed == below  # 20,M
+    assert rules[3].buckets_allowed == below  # 8,D
+    assert "extended_below" not in rules[4].buckets_allowed  # NotExtended short
+    assert "extended_above" in rules[4].buckets_allowed      # su espejo sí permitido
 
 
 # (a) "above" ESTRICTO: las AboveSMA excluyen `near` (decisión de etapa, ADR-005 §9.2). NotExtended
@@ -112,10 +183,36 @@ def test_swing_eod_below_rule_names_and_mirror():
 def test_swing_eod_above_excludes_near():
     above = swing_eod.build_rules("above")
     strict = frozenset({"above_mild", "above_strong", "extended_above"})
-    assert above[0].buckets_allowed == strict
-    assert above[1].buckets_allowed == strict
-    assert "near" not in above[0].buckets_allowed
-    assert "near" not in above[1].buckets_allowed
+    for rule in above[:4]:  # las 4 AboveSMA (20,D)/(20,W)/(20,M)/(8,D); NotExtended aparte
+        assert rule.buckets_allowed == strict
+        assert "near" not in rule.buckets_allowed
+
+
+# R2: buckets_allowed viene de `filters` cuando la config trae una clave "tf:period" para esa
+# rule; el resto sigue en el default ABOVE (sin override)
+def test_swing_eod_above_honors_filters_override_per_series():
+    filters = {("W", 20): frozenset({"near"})}
+    rules = swing_eod.build_rules("above", filters)
+    by_name = {r.name: r.buckets_allowed for r in rules}
+    assert by_name["AboveSMA(20,W)"] == frozenset({"near"})
+    assert by_name["AboveSMA(20,D)"] == frozenset({"above_mild", "above_strong", "extended_above"})
+    assert by_name["AboveSMA(20,M)"] == frozenset({"above_mild", "above_strong", "extended_above"})
+    assert by_name["AboveSMA(8,D)"] == frozenset({"above_mild", "above_strong", "extended_above"})
+
+
+# R2: el mismo override se espeja al side "below", igual que el default (D6B.4)
+def test_swing_eod_filters_override_mirrors_to_below():
+    filters = {("W", 20): frozenset({"near"})}
+    rules = swing_eod.build_rules("below", filters)
+    by_name = {r.name: r.buckets_allowed for r in rules}
+    assert by_name["BelowSMA(20,W)"] == frozenset({"near"})  # "near" es autoespejo
+
+
+# R2: filters ausente (None) es retrocompatible — mismos names/buckets que sin el parámetro
+def test_swing_eod_filters_none_is_backward_compatible():
+    assert [r.buckets_allowed for r in swing_eod.build_rules("above")] == [
+        r.buckets_allowed for r in swing_eod.build_rules("above", None)
+    ]
 
 
 # (b) series de swing_eod = unión deduplicada, independiente del side

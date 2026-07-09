@@ -18,14 +18,23 @@
   },
   "strategies": {
     "swing_eod": {
+      "enabled": true,
       "universe": "swing_advances",
       "direction": "long",
       "main_timeframe": "W",
       "timeframes": { "D": [8, 20, 200], "W": [8, 20, 200], "M": [8, 20] },
       "schedule": "after_close",
-      "universe_filter": "avg_vol > 1e6 and price > 5"
+      "universe_filter": "avg_vol > 1e6 and price > 5",
+      "filters": {
+        "W:8": ["near"],
+        "W:20": ["near", "above_mild"],
+        "M:20": ["near", "above_mild"],
+        "D:8": ["near", "above_mild"],
+        "D:20": ["near", "above_mild", "above_strong", "extended_above"]
+      }
     },
     "swing_eod_short": {
+      "enabled": false,
       "universe": "swing_declines",
       "direction": "short",
       "main_timeframe": "W",
@@ -34,6 +43,7 @@
       "universe_filter": "avg_vol > 1e6 and price > 5"
     },
     "market_close": {
+      "enabled": false,
       "universe": "swing_advances",
       "direction": "long",
       "main_timeframe": "W",
@@ -42,6 +52,7 @@
       "universe_filter": "avg_vol > 1e6 and price > 5"
     },
     "market_close_short": {
+      "enabled": false,
       "universe": "swing_declines",
       "direction": "short",
       "main_timeframe": "W",
