@@ -121,6 +121,28 @@ bash scripts/seed_object_store.sh
 
 ---
 
+## Operación semanal (correr un scan con universo nuevo)
+
+1. **Docker Desktop debe estar corriendo** (`lean backtest` levanta un contenedor; si no está arriba, falla al iniciar).
+2. Exportar el/los CSV de Barchart (advances y/o declines) a `data/object-store/`.
+3. Re-sembrar el universo:
+   ```bash
+   source .venv/bin/activate
+   bash scripts/seed_object_store.sh
+   ```
+4. Ajustar el rango de fechas en `trade-scanner/main.py` (bloque `else` de `prod`, ~líneas 39-40) a la fecha del CSV nuevo. `start_date` no afecta el warmup (se deriva aparte); moverlo cerca de `end_date` solo evita recorrer meses de más y generar resultados intermedios innecesarios — dejar ~5-7 días de margen por si `end_date` cae en fin de semana/feriado:
+   ```python
+   self.set_start_date(2026, 9, 6)   # end_date menos ~7 días de margen
+   self.set_end_date(2026, 9, 13)    # fecha del CSV nuevo
+   ```
+5. Correr el backtest:
+   ```bash
+   lean backtest "trade-scanner"
+   ```
+6. Leer la watchlist en `storage/results/<estrategia>/latest.json` (ver sección Salida más abajo).
+
+---
+
 ## Salida
 
 Cada scan de una estrategia base escribe en el ObjectStore (`storage/results/` en local, transparente en cloud):

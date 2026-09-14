@@ -36,8 +36,8 @@ class Tradescanner(QCAlgorithm):
             self.set_start_date(2013, 10, 7)
             self.set_end_date(2013, 10, 11)
         else:
-            self.set_start_date(2026, 1, 2)
-            self.set_end_date(2026, 7, 3)
+            self.set_start_date(2026, 4, 2)
+            self.set_end_date(2026, 9, 1)
         self.set_cash(100000)
 
         # Resolución de suscripción por entorno (⟂ resolución de warmup, que es DAILY siempre, 5A T3.9):

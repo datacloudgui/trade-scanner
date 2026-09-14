@@ -237,3 +237,6 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 data/stooq/*.csv
+
+# POC earnings_volume: CSVs de salida regenerables
+scripts/poc/out/
