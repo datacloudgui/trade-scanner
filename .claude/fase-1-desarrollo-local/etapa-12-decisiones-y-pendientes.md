@@ -103,6 +103,38 @@ Además: la Fase A se movió al principio del Done when; la lista de commits ref
   - `CHANGE=<id>` y `DRY_RUN` (aprobados antes) pasan a **diferidos** en el roadmap §4, con el disparador "si se reactiva Codex". Su único beneficiario no se puede ejecutar;
   - se eliminó la mención de T8 como prueba de `CHANGE=<id>`.
 
+## T6 — `AGENTS.md` → `docs/review/`, `run_review.sh` opcional (2026-09-23)
+
+**Cambios:**
+- `git mv AGENTS.md docs/review/codex-review-prompt.md`: ya no hay prompt de solo lectura en la raíz.
+- `scripts/run_review.sh`, cambios mínimos:
+  - cabecera "OPCIONAL — requiere Codex CLI…";
+  - guard `command -v codex` **antes** del `mkdir -p "$OUTDIR"`: mensaje a stderr y `exit 1`;
+  - L39/L47-48: ruta nueva del prompt y "cadena de precedencia de CLAUDE.md" en lugar de "PLAN.md/SPECS.md como fuentes de verdad";
+  - si no existe `etapa-NN.md`, un segundo aviso dice que desde la Etapa 13 el alcance vive en `openspec/changes/<id>/` y que el script todavía no lo soporta.
+- Prompt movido, alineado sin reescribirlo:
+  - L23: remite a la cadena de precedencia de CLAUDE.md (desaparece "máxima precedencia");
+  - L33: la etapa activa sale de la tabla *Secuencia del ciclo* de PLAN §7 y, si es un change, de sus `proposal`/`design`/`tasks`/`specs`;
+  - L79: fila de datos → Opción C de ADR-002 (9A); Stooq queda como fuente previa.
+- `docs/conceptos/code-review-codex-vs-anthropic.md`: aviso de estado (Codex opcional, no instalado) y revisión por defecto `/opsx:verify` (G5) + `/code-review` al cerrar etapa. Se quitó `AGENTS.md` del contexto que hereda `/code-review`.
+
+**Evidencia (criterios de aceptación):**
+
+| Criterio | Salida |
+|---|---|
+| `test ! -f AGENTS.md` / `test -f docs/review/codex-review-prompt.md` | OK / OK |
+| `grep -n "AGENTS.md" scripts/*.sh` | 0 resultados |
+| `bash -n scripts/run_review.sh` | OK |
+| `bash scripts/run_review.sh 5` sin Codex | "run_review.sh es OPCIONAL y requiere Codex CLI (no encontrado en PATH)." + "La revisión por defecto es /opsx:verify (G5) + /code-review."; **exit 1** |
+| `ls revisiones` antes / después | `20260619-205134` / `20260619-205134` (`diff` vacío) |
+| `grep -c` en el prompt | "precedencia de CLAUDE.md" = 1; "máxima precedencia" = 0; "Opción C" = 1 |
+| Cápsula | L6 marca Codex **OPCIONAL** y nombra `/opsx:verify` + `/code-review`; L70 lo repite para el cierre de etapa |
+
+**Notas:**
+- Las menciones restantes de `AGENTS.md` (`git grep`, sin `revisiones/`) son narrativas: esta spec, esta bitácora, el roadmap y PLAN. No queda ningún link roto.
+- `scripts/codex_usage.sh` y `revisiones/` no se tocaron.
+- `CHANGE=<id>` y `DRY_RUN` siguen diferidos (roadmap §4).
+
 ## Pendientes
 
-- T6 en adelante. **T6 no se inicia hasta que el usuario lo indique.**
+- T7 en adelante. **T7 no se inicia hasta que el usuario lo indique.**

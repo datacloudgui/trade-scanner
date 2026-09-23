@@ -20,9 +20,9 @@ watchlists con evidencia.
 está prohibido colocar órdenes**. Cualquier `self.market_order`, `self.set_holdings`,
 `self.buy/sell`, `self.liquidate` o similar es un hallazgo **CRÍTICO**.
 
-Fuentes de verdad del diseño (consúltalas, no las contradigas): `PLAN.md` (operativa,
-máxima precedencia) > `SPECS.md` (producto, entidades, criterios) > `CLAUDE.md`
-(convenciones). Decisiones de diseño congeladas en `.claude/decisions/ADR-*.md` y
+Fuentes de verdad del diseño (consúltalas, no las contradigas): sigue la cadena de
+precedencia de CLAUDE.md (sección *Documentos y precedencia*), que ordena `PLAN.md`,
+`SPECS.md`, CLAUDE.md y los changes de `openspec/`. Decisiones de diseño congeladas en `.claude/decisions/ADR-*.md` y
 `docs/conceptos/*.md`. Ante conflicto entre lo que ves en el código y estos documentos,
 **repórtalo como hallazgo, no asumas que el código tiene razón**.
 
@@ -30,8 +30,9 @@ máxima precedencia) > `SPECS.md` (producto, entidades, criterios) > `CLAUDE.md`
 La exhaustividad no es opcional: la calidad del reporte se mide por cuántos de estos
 pasos ejecutaste de verdad, no por cuántos archivos abriste.
 
-1. **Lee primero el diseño.** `PLAN.md` (§2–§5 y la etapa marcada *en progreso*/
-   *pendiente*), `SPECS.md` (entidades + criterios de aceptación), los ADRs y
+1. **Lee primero el diseño.** `PLAN.md` (§2–§5 y la etapa activa según la tabla
+   *Secuencia del ciclo* de PLAN §7 y, si el alcance es un change, sus
+   `proposal`/`design`/`tasks`/`specs` en `openspec/changes/<id>/`), `SPECS.md` (entidades + criterios de aceptación), los ADRs y
    `docs/conceptos/`. Anota los criterios de aceptación verificables: serán tu checklist
    de trazabilidad en el paso 5.
 2. **Mapea capas → archivos** (ver "Mapa de revisión por archivo"). Confirma que la
@@ -76,7 +77,7 @@ siguiente eslabón asume? ¿se propagan los símbolos fríos/sin datos sin conta
 | Contenerización | Docker Desktop, imagen oficial `quantconnect/lean` (engine y tests) |
 | Ejecución | `lean backtest` / `lean live` vía LEAN CLI |
 | Config y universos | ObjectStore (`config/strategies.json`, `universes/*.csv`) |
-| Datos Fase 1 | Stooq → LEAN (ADR-003); Alpaca free (IEX) diferido |
+| Datos Fase 1 | Opción C de ADR-002 (Etapa 9A): barras diarias de Alpaca REST descargadas host-side → zips LEAN locales; W/M por consolidators. Stooq (ADR-003) fue la fuente previa; feed live intradía diferido (requiere QC pago) |
 | Datos = configuración | La fuente vive en `lean.json`, nunca en el código |
 | Notificación/salida | `NotificationManager` (cloud) / archivo + log (local), switch solo en `output.py` |
 

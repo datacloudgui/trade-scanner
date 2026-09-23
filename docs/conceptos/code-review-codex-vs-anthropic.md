@@ -1,7 +1,9 @@
 # Cápsula: code review — Codex vs Anthropic
 
 **Tipo:** material de estudio (cápsula breve). Para entender los dos flujos de revisión del proyecto y cuándo usar cada uno.
-**Relacionado:** `scripts/run_review.sh`, `scripts/codex_usage.sh`, skill `/code-review`, AGENTS.md, PLAN.md (Done when por etapa).
+**Relacionado:** `scripts/run_review.sh`, `scripts/codex_usage.sh`, skill `/code-review`, `/opsx:verify`, [docs/review/codex-review-prompt.md](../review/codex-review-prompt.md) (antes `AGENTS.md` en la raíz; movido en Etapa 12 T6), PLAN.md (Done when por etapa).
+
+> **Estado (2026-09-23): Codex es OPCIONAL y no está instalado.** La revisión por defecto es **`/opsx:verify` (gate G5) + `/code-review`**. `run_review.sh` solo se usa si se vuelve a habilitar Codex; sin él sale con exit 1 y un mensaje, sin crear nada en `revisiones/`. Ningún gate depende de Codex.
 
 ---
 
@@ -20,7 +22,7 @@ No compiten: son dos capas distintas del mismo proceso de calidad.
 | Pieza | Rol real |
 |---|---|
 | `scripts/codex_usage.sh` | **Telemetría.** Lee el último snapshot de rate limits / tokens de la sesión de Codex. Existe porque Codex se corre como proceso externo a ciegas; en el flujo de Claude no hace falta (el harness gestiona el uso). |
-| `scripts/run_review.sh` | **El code review con Codex.** Orquesta `codex exec` (gpt-5.5, read-only) etapa por etapa, usa `etapa-NN.md` / PLAN.md / AGENTS.md como criterio, escribe informes a `revisiones/`. |
+| `scripts/run_review.sh` | **El code review con Codex.** Orquesta `codex exec` (gpt-5.5, read-only) etapa por etapa, usa `etapa-NN.md` / PLAN.md / `docs/review/codex-review-prompt.md` como criterio, escribe informes a `revisiones/`. |
 | Skill `/code-review` | **El reviewer de Anthropic**, integrado en la sesión de Claude Code. |
 
 La comparación real es **`run_review.sh` vs `/code-review`**.
@@ -33,7 +35,7 @@ Skill que corre **dentro de la sesión** de Claude Code, no un proceso externo l
 
 1. Se invoca con `/code-review [effort]` — niveles `low | medium | high | max | ultra`.
 2. Toma el **diff actual** como unidad de revisión (branch vs `main`, o un PR: `/code-review ultra <PR#>`).
-3. Busca **bugs de correctitud** + limpiezas de **reuse / simplificación / eficiencia**. Hereda contexto automáticamente: CLAUDE.md, AGENTS.md y la conversación en curso (conoce reglas duras de capas, "cero órdenes", etc. sin explicárselo).
+3. Busca **bugs de correctitud** + limpiezas de **reuse / simplificación / eficiencia**. Hereda contexto automáticamente: CLAUDE.md y la conversación en curso (conoce reglas duras de capas, "cero órdenes", etc. sin explicárselo).
 4. Salida según flags:
    - sin flag → lista hallazgos en el chat,
    - `--comment` → los postea como **inline comments en el PR**,
@@ -65,7 +67,7 @@ Skill que corre **dentro de la sesión** de Claude Code, no un proceso externo l
 Dos capas, no redundantes:
 
 - **Durante el desarrollo de la etapa** → `/code-review` (rápido, con contexto, puede arreglar en el sitio). Antes de commitear.
-- **Al cerrar la etapa, como auditoría independiente** → `run_review.sh` con Codex, que valida etapa → test → Done when con otro modelo. El valor es que *no* es Claude.
-- **Antes de mergear algo grande** → `/code-review ultra` (multi-agente) y/o el informe de Codex como segundo par de ojos.
+- **Al cerrar la etapa** → `/opsx:verify` (G5) + `/code-review`. `run_review.sh` solo si Codex está habilitado (opcional): valida etapa → test → Done when con otro modelo; su valor es que *no* es Claude.
+- **Antes de mergear algo grande** → `/code-review ultra` (multi-agente) y, si Codex está habilitado, su informe como segundo par de ojos.
 
-En una frase: Codex es el **auditor externo spec-driven de cierre de etapa**; `/code-review` es el **reviewer inline diff-driven del día a día que además corrige**; y `codex_usage.sh` es solo el cuentakilómetros de Codex.
+En una frase: Codex es el **auditor externo spec-driven de cierre de etapa, opcional**; `/code-review` es el **reviewer inline diff-driven del día a día que además corrige**; y `codex_usage.sh` es solo el cuentakilómetros de Codex.
