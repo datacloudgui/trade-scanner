@@ -5,6 +5,12 @@
 **Rama:** `feature/etapa-6-features-rules`
 **Estimado:** 3–5 horas
 
+> ⚠️ **Superseded en parte (2026-09-23).** Se re-especifica como change de OpenSpec `derive-backtest-range-from-universe`
+> (orden 4 del ciclo; ver [roadmap-definitivo-2026-09.md](roadmap-definitivo-2026-09.md) U2). Dos premisas quedaron refutadas:
+> (1) **`end_date = asof` no escanea la última sesión**: el backtest prod del 2026-09-20 terminó el 09-18 a las 16:00 y el
+> scan `after_close` de ese día nunca disparó (H4); (2) **el footer es la fecha de descarga** (sábado 09-19), no la sesión;
+> la fecha de sesión es `max(Time)` (H4b). La rama indicada abajo ya no aplica.
+
 ---
 
 ## Objetivo

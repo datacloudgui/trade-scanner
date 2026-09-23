@@ -161,10 +161,30 @@ Variante shorts (`*_short`): universo `swing_declines`, `direction: short` → l
 
 ---
 
-## 7. FASE 1 — Etapas (spec-driven; no avanzar a una etapa sin cerrar el Done when de la anterior)
+## 7. FASE 1 — Etapas (spec-driven)
+
+### Secuencia del ciclo 2026-09 (fija el orden de ejecución)
+
+Roadmap del ciclo: [roadmap-definitivo-2026-09.md](.claude/fase-1-desarrollo-local/roadmap-definitivo-2026-09.md). **La etapa activa es la primera fila de esta tabla
+cuyo Estado no es `completada`**; se trabaja solo esa (CLAUDE.md, flujo, paso 1). El orden del documento de abajo
+es histórico, no de ejecución. `pausada` = etapa abierta cuyo trabajo restante está asignado a una fila posterior.
+
+| Orden | Etapa | Unidad del roadmap | Forma | Estado |
+|---|---|---|---|---|
+| 1 | **12** — Base estable + adopción de OpenSpec | U0 | [etapa-12.md](.claude/fase-1-desarrollo-local/etapa-12.md) | en progreso |
+| 2 | **13** — Cobertura de datos | U1 | change `add-data-coverage-gate` | pendiente |
+| 3 | **5B** — cierre de F3 | U1b | change `close-5b-reference-fixture` | pausada |
+| 4 | **11** — Rango del backtest derivado del universo (re-scope) | U2 | change `derive-backtest-range-from-universe` | pendiente |
+| 5 | **14** — Scan acotado al universo de cada estrategia (#12) | U3a | change `partition-scan-universe-per-strategy` + ADR-006 | pendiente |
+| 6 | **15** — Lado corto habilitado | U3b | change `enable-short-side` + enmienda a ADR-005 | pendiente |
+| 7 | **9** — Validación integral (+ 9A T7/T8) | U4 | tarea de PLAN, sin change | pendiente |
+
+Desde la Etapa 13, cada unidad se especifica como change de OpenSpec (`openspec/changes/<id>/`); la Etapa 12 es el
+último spec en formato `etapa-NN.md`. Una rama por etapa: `feature/etapa-NN-<change-id>` (modelo de ramas en
+[etapa-12.md §Manejo de ramas](.claude/fase-1-desarrollo-local/etapa-12.md)).
 
 ## Etapa 0 — Entorno de desarrollo
-**Estado:** pendiente
+**Estado:** completada (verificada 2026-09-23 en Etapa 12 T1; el entorno funcionaba desde Etapa 1 pero el Estado nunca se actualizó)
 **Objetivo:** máquina lista para correr LEAN CLI (válido para cualquier PC)
 **Depende de:** nada
 **Alcance:**
@@ -173,10 +193,10 @@ Variante shorts (`*_short`): universo `swing_declines`, `direction: short` → l
 - Crear virtualenv del proyecto (`python -m venv .venv`); añadir `.venv/` a `.gitignore`.
 - Instalar LEAN CLI dentro del venv: `pip install lean`; verificar `lean --version`.
 **Done when:**
-- [ ] `docker run hello-world` pasa sin errores
-- [ ] `python --version` dentro del venv muestra `3.11.x`
-- [ ] `lean --version` pasa sin errores
-- [ ] `.venv/` en `.gitignore`; `.python-version` en el repo
+- [x] `docker run hello-world` pasa sin errores *(2026-09-23)*
+- [x] `python --version` dentro del venv muestra `3.11.x` *(3.11.11)*
+- [x] `lean --version` pasa sin errores *(lean 1.0.225)*
+- [x] `.venv/` en `.gitignore`; `.python-version` en el repo *(`3.11.11`)*
 
 ## Etapa 1 — Workspace LEAN, cuentas y credenciales
 **Estado:** completada
@@ -251,7 +271,7 @@ Variante shorts (`*_short`): universo `swing_declines`, `direction: short` → l
 - [x] Backtest loguea el universo cargado por estrategia con su conteo (≤200)
 - [x] Tests de filtro, tope y CSV malformado verdes
 
-> **Cierre (commit `[Etapa 4]`):** `core/universe.py` implementado con `COLUMN_ALIASES`, footer strip (`^[A-Z]{1,5}$`), filtro declarativo vía `df.query()`, orden alfabético y tope duro. Sin imports de `AlgorithmImports`. `main.py` integrado: 4 líneas `universe loaded: N tickers (env=..., max=..., key=...)` en `initialize()`; conteos 74 advances / 68 declines en prod, 2 en dev. 6 tests verdes en Docker (`bash scripts/run_tests.sh`). **Hallazgo D-E4:** `self.get_parameter()` lee parámetros escalares desde `trade-scanner/config.json["parameters"]`, NO desde `lean.json["parameters"]` (el campo en `lean.json` es configuración del engine, no del algoritmo). El parámetro `env` vive en `trade-scanner/config.json`. Decisiones y pendientes en [.claude/fase-1-desarrollo-local/etapa-04-decisiones-y-pendientes-md](.claude/fase-1-desarrollo-local/etapa-04-decisiones-y-pendientes-md).
+> **Cierre (commit `[Etapa 4]`):** `core/universe.py` implementado con `COLUMN_ALIASES`, footer strip (`^[A-Z]{1,5}$`), filtro declarativo vía `df.query()`, orden alfabético y tope duro. Sin imports de `AlgorithmImports`. `main.py` integrado: 4 líneas `universe loaded: N tickers (env=..., max=..., key=...)` en `initialize()`; conteos 74 advances / 68 declines en prod, 2 en dev. 6 tests verdes en Docker (`bash scripts/run_tests.sh`). **Hallazgo D-E4:** `self.get_parameter()` lee parámetros escalares desde `trade-scanner/config.json["parameters"]`, NO desde `lean.json["parameters"]` (el campo en `lean.json` es configuración del engine, no del algoritmo). El parámetro `env` vive en `trade-scanner/config.json`. Decisiones y pendientes en [.claude/fase-1-desarrollo-local/etapa-04-decisiones-y-pendientes.md](.claude/fase-1-desarrollo-local/etapa-04-decisiones-y-pendientes.md).
 
 ## Etapa 5A — TimeframeSpec + SymbolData (lógica y tests sintéticos)
 **Estado:** completada
@@ -273,7 +293,7 @@ Variante shorts (`*_short`): universo `swing_declines`, `direction: short` → l
 > **Cierre (commits `[Etapa 5A]`, 2026-06-11):** `core/timeframes.py` (registro declarativo `TimeframeSpec`, fórmula de warmup generalizada, `plan_warmup` con presupuesto por resolución) y `core/symbol_data.py` (cadena minute→daily→W/M sin instancia del algorithm, `working_bar`, `is_ready`, `scan(time)`). 31 tests verdes en Docker (T3.1–T3.11 + previos). **Hallazgos D-E5A:** (1) la emisión del consolidator es perezosa incluso con barras diarias exactas y el lag se encadena a W/M → el warmup de 5B debe cerrar con `SymbolData.scan(...)`; (2) `scan()` también emite en consolidators de calendario → 5B puede refrescar SMAs W/M el mismo día del cierre de periodo; (3) equivalencia EXACTA de rutas warmup-daily vs runtime-minute verificada (T3.9) — sin asimetrías en LEAN. Decisiones y pendientes en [.claude/fase-1-desarrollo-local/etapa-05a-decisiones-y-pendientes.md](.claude/fase-1-desarrollo-local/etapa-05a-decisiones-y-pendientes.md).
 
 ## Etapa 5B — Warmup integrado + datos de muestra + validación de precisión
-**Estado:** en progreso
+**Estado:** pausada — F1/F2 cerradas; F3 (T6.3 + T6.4) se reanuda en el **orden 3** del ciclo como change `close-5b-reference-fixture`. Re-scope ([roadmap U1b](.claude/fase-1-desarrollo-local/roadmap-definitivo-2026-09.md)): 27 series (SPY/AAPL/IBM × SMA 8/20/200 × D/W/M) sobre `data/stooq_lean/` con corte 2026-06-11, split-only; **no** refrescar `data/equity/usa/daily/{spy,aapl,ibm}.zip` (lo lee el fixture INTERINO)
 **Objetivo:** warmup batch real en `main.py`, datos diarios de muestra multi-símbolo, y SMAs validadas manualmente contra plataforma de referencia (criterio DONE nº1 del SPECS)
 **Depende de:** Etapa 5A
 **Spec detallado:** [.claude/fase-1-desarrollo-local/etapa-05b.md](.claude/fase-1-desarrollo-local/etapa-05b.md)
@@ -308,7 +328,7 @@ Variante shorts (`*_short`): universo `swing_declines`, `direction: short` → l
 - ➡️ `NotExtended`, formateador de log y campos de `ScanResult`: **trasladados a Etapa 6B** (no se realizaron en E6)
 
 ## Etapa 6B — Snapshot único + reglas como filtros puros
-**Estado:** en progreso (T1–T7 implementadas y verdes — 141 passed; cierre pendiente de commit)
+**Estado:** completada (T1–T7 — 141 passed; commits `dd44dfb` 2026-06-14 y `03880f2` 2026-06-18. El Estado se actualizó en la resincronización de Etapa 12 T3, 2026-09-23)
 **Objetivo:** una sola evaluación de posición precio↔SMA por símbolo·scan (snapshot único), reglas convertidas en filtros puros sobre buckets ya asignados, simétricas long/short sin duplicar reglas; cerrar las piezas pendientes de la capa de reglas
 **Depende de:** Etapa 6
 **Autoridad de diseño:** [ADR-005](.claude/decisions/ADR-005-snapshot-unico-y-reglas-como-filtros.md) (aprobado). Supersede D4 de E6.
@@ -325,7 +345,7 @@ Variante shorts (`*_short`): universo `swing_declines`, `direction: short` → l
 - [x] `SMAPositionRule.evaluate(snapshot)`: 8 tests de T3 migrados + casos short; evidencia completa al fallar; `buckets_allowed` inválido revienta en construcción *(T3 — `AboveSMA` eliminado)*
 - [x] `NotExtended` sin `max_pct` excluye el bucket favorable-extremo (ambos lados); segundo `extended` mueve el corte *(T4)*
 - [x] `max_extension_pct` retirado de config + `storage/`; `grep` `.py` limpio; round-trip idéntico *(T5)*
-- [~] Formateador reproduce literalmente las 4 líneas; `ScanResult` con campos nuevos; suite verde (141 passed) — ✅ T6+T7; **falta el commit `[Etapa 6B]`** para cerrar la etapa
+- [x] Formateador reproduce literalmente las 4 líneas; `ScanResult` con campos nuevos; suite verde (141 passed) — T6+T7 commiteados en `03880f2`
 
 ## Etapa 7 — ScanPipeline + estrategias + schedule
 **Estado:** completada (T1–T6, 2026-06-19) — 178 passed; backtest dev verificado (EXIT=0 ×2). Mecánica end-to-end demostrada: minute subscription + 4 pipelines + schedule + gate B + ranking + embudo + `ScanResult` con evidencia + reproducibilidad (watchlist IBM short byte-idéntica entre 2 corridas). **El literal "backtest ≥3 meses" se DIFIERE a Etapa 9** (decisión usuario): el harness dev solo tiene ~6 días de minute (SPY) y ≥3 meses multi-símbolo exige `lean data download` QC-pago (ADR-002, prerequisito de E9).
@@ -363,6 +383,7 @@ Variante shorts (`*_short`): universo `swing_declines`, `direction: short` → l
 **Objetivo:** Fase 1 cerrada con los 6 criterios DONE WHEN del SPECS verificados
 **Depende de:** Etapa 8
 **Notas y deferrals acumulados:** [.claude/fase-1-desarrollo-local/etapa-09.md](.claude/fase-1-desarrollo-local/etapa-09.md) (incluye D9-1: optimización del batching de historia en live con Alpaca, diferido desde 5B)
+**Ciclo 2026-09 (orden 7):** el prerrequisito de datos quedó resuelto con la **Opción C** (Etapa 9A); `lean live` sigue bloqueado (ADR-002) → DoD nº4 diferido y justificado. Absorbe 9A T7 (portabilidad) y T8 (matriz de proveedor), #23 (`qc_notify` en cloud, vía `[config]`) y #5 (anchor SPY: `spy.zip` termina en 2021, prod lo usa solo por market hours). **Toda evidencia de DoD debe salir de corridas posteriores a la Etapa 15** ([roadmap U4](.claude/fase-1-desarrollo-local/roadmap-definitivo-2026-09.md)).
 
 > ⚠️ **Prerrequisito bloqueante — resolver ANTES de iniciar esta etapa**
 >
@@ -387,6 +408,102 @@ Variante shorts (`*_short`): universo `swing_declines`, `direction: short` → l
 - [ ] Cambio de provider en `lean.json` sin tocar código verificado
 - [ ] Checklist de los 6 criterios DONE WHEN del SPECS (§8 de este plan) firmado → Fase 1 cerrada; sigue Fase 2 (deploy VPS, fuera de este plan)
 
+## Etapa 9A — Datos reales D/W/M vía Alpaca REST (Opción C de ADR-002)
+**Estado:** pausada — T1–T6 cerradas; T7 (portabilidad local↔cloud) y T8 (matriz de proveedor) se cierran dentro de la **Etapa 9**; T9 (live paper) diferida por QC pago (ADR-002)
+**Objetivo:** datos diarios reales multi-símbolo en formato LEAN, descargados host-side (`scripts/alpaca_to_lean.py`), sin tocar el algoritmo
+**Depende de:** Etapa 8
+**Spec detallado:** [.claude/fase-1-desarrollo-local/etapa-09a-conexion-alpaca.md](.claude/fase-1-desarrollo-local/etapa-09a-conexion-alpaca.md) · bitácora [etapa-09a-decisiones-y-pendientes.md](.claude/fase-1-desarrollo-local/etapa-09a-decisiones-y-pendientes.md)
+**Done when:**
+- [x] T1–T6 (commit `5d1c429`, 2026-07-05): descarga Alpaca→LEAN, cross-check de fidelidad Alpaca↔Stooq ≤0,25 % (máx. 0,2259 % AAPL M:20), fixture SPY-Alpaca — 238 passed
+- [ ] T7 — portabilidad local↔cloud (→ Etapa 9)
+- [ ] T8 — matriz de proveedor (→ Etapa 9)
+- [~] T9 — sesión live paper: diferida (ADR-002)
+
+## Etapa 9B — Correcciones del triaje Codex E1–E8
+**Estado:** completada (2026-07-05) — 19 de 20 hallazgos VIGENTES corregidos; suite A: 253 → B: 270 → C: 284 passed; smoke backtest dev sin errores
+**Depende de:** Etapa 8
+**Spec detallado:** [.claude/fase-1-desarrollo-local/etapa-09b-correcciones-triaje-E1-E8.md](.claude/fase-1-desarrollo-local/etapa-09b-correcciones-triaje-E1-E8.md) · triaje [revisiones/20260619-205134/triaje-E1-E8.md](revisiones/20260619-205134/triaje-E1-E8.md)
+**Done when:**
+- [x] Grupo A (ALTO) `b5294bb`, Grupo B (MEDIO) `9acf292`, Grupo C (BAJO) `53be8bd`
+- ➡️ **#12 (ALTO, el scan cruza universos entre estrategias) NO corregido** → Etapa 14. Está **activo** cuando `swing_eod_short` está habilitado (roadmap H1: 500/1163 candidatos short cruzados en el backtest prod del 2026-09-20). Propuesta: [propuesta-diseno-12.md](revisiones/20260619-205134/propuesta-diseno-12.md)
+
+## Etapa 10 — Refinamiento post-9B (`enabled` por estrategia + `filters` por TF:periodo)
+**Estado:** completada (2026-07-09, commit `8b0afc2` "add: some improvements" — sin el tag `[Etapa 10]` en el mensaje)
+**Depende de:** Etapa 9B
+**Spec detallado:** [.claude/fase-1-desarrollo-local/etapa-10-refinamiento.md](.claude/fase-1-desarrollo-local/etapa-10-refinamiento.md)
+**Done when:**
+- [x] R1: `enabled` por estrategia en `config/strategies.json` (ausente ⇒ `true`), leído en `initialize()`
+- [x] R2: bloque `filters` `{"TF:period": [buckets]}` + `resolve_filters` con validación; SMA20 D/W/M dividida en una rule por TF; tests
+- ⚠️ Hallazgos posteriores (roadmap H2b/H2c) → Etapa 15: `filters["W:8"]` no tiene rule consumidora; `filters["D:8"]` alimenta una rule `required=False`; el vocabulario canónico "above" invierte en silencio un short escrito en vocabulario natural
+
+## Etapa 11 — Rango del backtest derivado del universo + resultados por fecha (re-scope)
+**Estado:** pendiente — **orden 4** del ciclo; se ejecuta como change `derive-backtest-range-from-universe`
+**Depende de:** Etapa 13 (`session_date` y preflight de cobertura)
+**Spec original:** [.claude/fase-1-desarrollo-local/etapa-11-fecha-desde-universo.md](.claude/fase-1-desarrollo-local/etapa-11-fecha-desde-universo.md) — **superseded en parte**: la premisa `end_date = asof` y la prioridad del footer quedaron refutadas (roadmap H4/H4b: con `end_date` = último día hábil la sesión no se escanea; el footer es la fecha de descarga). Re-scope en [roadmap U2](.claude/fase-1-desarrollo-local/roadmap-definitivo-2026-09.md).
+**Done when:**
+- [ ] Spike documentado en `design.md` con el extracto de log de la opción elegida (candidata o plan B)
+- [ ] Con los CSV del 09-19: log `asof=2026-09-18`, y `latest.json.as_of` corresponde a la **sesión 2026-09-18** (el `price` de un candidato = cierre del 09-18 en su zip); exactamente **un** scan por sesión
+- [ ] **Test**: dos CSV de sesiones distintas → `ValueError` en la reconciliación de fechas
+- [ ] `results/{base}/{YYYYMMDD}/` y `results/{base}/latest.json` coexisten; `notify_email.py --base swing_eod` sin cambios funciona
+- [ ] `main.py` sin fechas prod hardcodeadas; dev inalterado; README sin el paso 4 manual
+- [ ] Al cerrar: DEVLOG/ROADMAP con una entrada por etapa
+
+## Etapa 12 — Base estable + adopción de OpenSpec (bootstrap del ciclo 2026-09)
+**Estado:** en progreso (desde 2026-09-23) — **orden 1**
+**Objetivo:** config sembrada == versionada (short apagado), PLAN resincronizado, OpenSpec instalado y validado sin contradecir CLAUDE.md, baseline reproducible de la watchlist long para el gate G4
+**Depende de:** ninguna etapa de código
+**Rama:** `feature/etapa-12-bootstrap-openspec`
+**Spec detallado:** [.claude/fase-1-desarrollo-local/etapa-12.md](.claude/fase-1-desarrollo-local/etapa-12.md) · bitácora [etapa-12-decisiones-y-pendientes.md](.claude/fase-1-desarrollo-local/etapa-12-decisiones-y-pendientes.md)
+**Done when:** (detalle y criterios de aceptación en el spec)
+- [x] Fase A — `develop`/`main` fast-forward a `f8ded63` y pusheados; tag `scan/v2026.09.23-pre-ciclo`; rama de etapa con la spec como primer commit
+- [x] T1 — `run_tests.sh` verde: **304 passed** (2026-09-23); `docker run hello-world` OK
+- [x] T2 — ObjectStore resembrado: config sembrada == versionada, `swing_eod_short.enabled = false` en `storage/`
+- [x] T3 — PLAN §7 resincronizado + CLAUDE.md flujo paso 1 + nota de supersesión en etapa-11 *(2026-09-23)*
+- [ ] T4/T5 — Node + OpenSpec instalados; `openspec init` solo Claude Code; `openspec validate --all --strict` exit 0
+- [ ] T6/T7 — `AGENTS.md` de solo lectura retirado; `run_review.sh` apunta a la ruta nueva; CLAUDE.md con reglas OpenSpec + modelo de ramas
+- [ ] T8 — spike `chore-openspec-smoke`: ciclo completo sin flags prohibidos ni requisitos duplicados
+- [ ] T9 — baseline `baselines/scan-vYYYY.MM.DD-baseline/` (resultados + manifiesto), tarball fuera del repo, 0 tickers fuera de `swing_advances`, tag
+- [ ] T10 — merge `--no-ff` a `develop`, `main` == `develop`, tags en `origin`, ramas integradas borradas
+- [ ] T11 — decisión Finnhub escrita en `docs/ROADMAP.md`
+
+## Etapa 13 — Cobertura de datos del ciclo semanal
+**Estado:** pendiente — **orden 2**; primer change de OpenSpec: `add-data-coverage-gate`
+**Objetivo:** preflight host-side de frescura y profundidad de historia + cobertura (`universe_size`, `ready`, excluidos con motivo) y `config_sha256` en el envelope, para que ninguna watchlist oculte qué parte del universo no se evaluó
+**Depende de:** Etapa 12
+**Detalle:** [roadmap U1](.claude/fase-1-desarrollo-local/roadmap-definitivo-2026-09.md)
+**Done when:**
+- [ ] `session_date` sobre los CSV del 09-19 → `2026-09-18`; CSV sin columna `Time` → `ValueError` (tests)
+- [ ] Preflight sobre los CSV del 09-19: 76/49 con zip, 0 desactualizados, exit 0. Con un zip borrado o truncado antes de la sesión → exit ≠ 0
+- [ ] Coherencia preflight ↔ engine: el conjunto "historia corta" del preflight == `coverage.excluded` del envelope del último scan de la ventana; diferencias explicadas en `design.md`
+- [ ] `latest.json` de un backtest prod trae `coverage` por miembro y `config_sha256`; el hash coincide con `sha256sum storage/config/strategies.json`
+- [ ] G4: candidatos idénticos al baseline; solo cambian los campos nuevos
+- [ ] Test: miembro con universo vacío post-filtro → sección vacía, `WARNING` en el log y `coverage.universe_size = 0`
+- [ ] README con el runbook de 3 pasos (refresh → preflight → backtest)
+
+## Etapa 14 — Scan acotado al universo declarado de cada estrategia (#12)
+**Estado:** pendiente — **orden 5**; change `partition-scan-universe-per-strategy` + ADR-006
+**Objetivo:** cada pipeline escanea exactamente el mapa de su universo; la unión global solo decide suscripción y warmup. Precondición de un rollback limpio del lado corto
+**Depende de:** Etapa 11
+**Detalle:** [roadmap U3a](.claude/fase-1-desarrollo-local/roadmap-definitivo-2026-09.md) · [propuesta-diseno-12.md](revisiones/20260619-205134/propuesta-diseno-12.md)
+**Done when:**
+- [ ] Tests: mapas disjuntos por miembro + partición L5-style (cierra #25) + unión > 200 → `ValueError`
+- [ ] Test unitario de invariancia: `run_group_scan` con un FakePipeline long produce la misma sección long con y sin el miembro short
+- [ ] G4 con short activo en la rama: `check_watchlist_universe.py` exit 0 sobre toda la ventana
+- [ ] Invariancia del long en backtest: para cada `results/swing_eod/**/2026*.json`, `jq -S .sections.long` idéntico al del baseline
+- [ ] ADR-006 aceptado; en el log, cada pipeline solo lista exclusiones de su propio universo
+
+## Etapa 15 — Lado corto habilitado (`swing_eod_short`)
+**Estado:** pendiente — **orden 6**; change `enable-short-side` + enmienda a ADR-005
+**Objetivo:** encender el short con `filters` explícitos en vocabulario absoluto (el de la evidencia), validación de claves muertas, log del conjunto efectivo por rule, anotación `ssr_likely`, y rollback por `enabled: false` ensayado
+**Depende de:** Etapa 14 (archivada). Precondiciones: decisión del trader sobre el setup short (espejo del pullback long vs tendencia) y aprobación de la enmienda a ADR-005
+**Detalle:** [roadmap U3b](.claude/fase-1-desarrollo-local/roadmap-definitivo-2026-09.md) (incluye §Rollback)
+**Done when:**
+- [ ] Decisión de setup short registrada en `design.md`; enmienda a ADR-005 aceptada
+- [ ] Tests: short con `"W:20": ["near","below_mild"]` → rule permite exactamente `{near, below_mild}`; long sin cambios; clave muerta → `ValueError`
+- [ ] G4 específico completo (5 checks del roadmap), con la revisión del trader (≥3 corridas semanales reales) registrada en `design.md` y por encima del umbral fijado
+- [ ] `ssr_likely` visible en CSV/JSON/correo; decisión HTB escrita
+- [ ] Docs corregidos: §6 de este plan ya no afirma el espejo implícito; SPECS §6, `pipeline.py`, `swing_eod.py`
+- [ ] Promoción: `enabled: true` commiteado, tag creado, rollback ensayado una vez en la rama (flag → reseed → backtest → long idéntico)
 
 ---
 

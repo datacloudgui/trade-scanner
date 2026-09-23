@@ -305,7 +305,7 @@ Añadir una línea en `docs/ROADMAP.md`, bajo los candidatos de Fase 2, con las 
 
 - [x] T1: `run_tests.sh` verde; cifra registrada en PLAN; `docker run hello-world` OK *(2026-09-23: **304 passed**, 0 failed, 0 skipped, 13 warnings; hello-world OK. El registro en PLAN se hace en T3)*
 - [x] T2: config sembrada == config versionada (hashes iguales); short `false` en `storage/`; sin commit *(2026-09-23: sha256 `1be6104e…` en ambos; universos del 09-19 conservados)*
-- [ ] T3: PLAN §7 con 0/5B/6B/9A/9B/10/11/12/13/14/15 en su estado real y la tabla de secuencia; CLAUDE.md, paso 1, actualizado; nota de supersesión en `etapa-11-…md`
+- [x] T3: PLAN §7 con 0/5B/6B/9A/9B/10/11/12/13/14/15 en su estado real y la tabla de secuencia; CLAUDE.md, paso 1, actualizado; nota de supersesión en `etapa-11-…md` *(2026-09-23: 8 entradas nuevas + tabla de 7 filas; estados 0/6B `completada`, 5B/9A `pausada`; link roto de etapa-04 corregido)*
 - [ ] T4: `node` y `openspec` instalados; versiones anotadas y compatibles con `engines`
 - [ ] T5: `openspec/` inicializado solo para Claude Code; diff revisado; `openspec validate --all --strict` exit 0
 - [ ] T6: sin `AGENTS.md` de solo lectura en la raíz; `run_review.sh` apunta a `docs/review/codex-review-prompt.md`; `bash -n` OK

@@ -10,7 +10,7 @@ Screener multi-estrategia sobre el motor LEAN (QuantConnect, Python 3.11). Carga
 
 ## Flujo de trabajo (spec-driven, obligatorio)
 
-1. Lee `PLAN.md` y localiza la primera etapa con **Estado: pendiente** o **en progreso**.
+1. Lee `PLAN.md` §7, tabla **Secuencia del ciclo**: la etapa activa es la **primera fila cuyo Estado no es `completada`** (`pausada` = abierta, con su trabajo restante asignado a una fila posterior). El orden del documento es histórico, no de ejecución.
 2. Trabaja SOLO esa etapa. No mezcles alcance de etapas futuras.
 3. Al empezar: cambia su Estado a `en progreso`. Al cumplir cada criterio: marca su checkbox `- [x]`.
 4. Una etapa se cierra solo cuando TODOS sus "Done when" están verificados (no asumidos: ejecutados).
