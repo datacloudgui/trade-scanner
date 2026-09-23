@@ -222,7 +222,7 @@ Orden de pasos elegido para que **todos los commits queden antes del merge**:
    link a sus specs; registrar U1–U3b como etapas nuevas (numeración a decidir; propuesta: 12, 12b, 13, 14, 15).
 4. Instalar OpenSpec: Node ≥ 20 + `npm i -g @fission-ai/openspec` (hoy no están ni `node` ni `openspec`).
    `openspec init` solo para Claude Code; revisar el diff antes de commitear.
-5. Mover `AGENTS.md` a `docs/review/codex-review-prompt.md` y actualizar
+5. (Codex ya no está disponible desde 2026-09-23: `run_review.sh` pasa a opcional; la revisión por defecto es `/opsx:verify` + `/code-review`.) Mover `AGENTS.md` a `docs/review/codex-review-prompt.md` y actualizar
    [run_review.sh:39,47](../../scripts/run_review.sh#L39), que hoy pide a Codex "los criterios de AGENTS.md":
    hay que pasarle la ruta nueva explícitamente. Editar CLAUDE.md con §0.4.
 6. **Spike de ciclo OpenSpec:** un change de prueba (`chore-openspec-smoke`, un requisito ADDED trivial) recorre
@@ -443,6 +443,7 @@ con el nº4 diferido (ADR-002). **Cambio:** toda evidencia de DoD debe salir de 
 | POC Finnhub (earnings / `10DayAverageTradingVolume`) | `/opsx:explore` post-V1; si procede, change + ADR | Sin semántica de producto en V1 (§6) |
 | HTB/borrow | Fase 2, enriquecimiento host-side del CSV | Requiere datos que V1 no tiene (H9) |
 | Modo `shadow` (`mode: off\|shadow\|on`) | Change pequeño en `core/output.py` | Útil si el correo se automatiza; en el flujo actual (backtest + revisión manual) G4 cumple ese papel |
+| `run_review.sh`: `CHANGE=<id>` + `DRY_RUN` | Si se reactiva Codex, antes de revisar una etapa ≥13 | Codex no disponible desde 2026-09-23; sin ejecutable no hay forma de usarlo ni de probarlo. Etapa 12 T6 deja un aviso explícito en su lugar |
 | Borrar `trade-scanner/backtests/2026-06-11_*` | Limpieza local | Evita falsos positivos en greps de órdenes (H12) |
 
 ## 4b. Riesgos abiertos que este ciclo no resuelve (explícitos)

@@ -93,6 +93,16 @@ Se contrastó la spec contra el repo y contra lo decidido o hallado en T1–T5. 
 
 Además: la Fase A se movió al principio del Done when; la lista de commits refleja los reales; la pregunta sobre `--skip-specs` se cerró (resuelta en T5); se agregó la de telemetría. PLAN.md se ajustó en las líneas de T8 y T11.
 
+## Decisión: Codex no disponible → `run_review.sh` opcional (2026-09-23)
+
+- **Hecho:** el usuario ya no tiene Codex (`which codex` → no encontrado).
+- **Decisión:** `run_review.sh` y `codex_usage.sh` pasan a ser **opcionales** (solo si se reactiva Codex). La revisión por defecto es `/opsx:verify` (G5) + `/code-review`. Ningún gate depende de Codex.
+- **Cambios en T6:**
+  - se mantiene el traslado de `AGENTS.md`, porque otras herramientas también leen ese archivo en la raíz;
+  - `run_review.sh` recibe solo cambios mínimos: ruta nueva del prompt, guard si falta `codex` (sin crear `revisiones/<stamp>/`) y aviso explícito para etapas ≥13;
+  - `CHANGE=<id>` y `DRY_RUN` (aprobados antes) pasan a **diferidos** en el roadmap §4, con el disparador "si se reactiva Codex". Su único beneficiario no se puede ejecutar;
+  - se eliminó la mención de T8 como prueba de `CHANGE=<id>`.
+
 ## Pendientes
 
 - T6 en adelante. **T6 no se inicia hasta que el usuario lo indique.**

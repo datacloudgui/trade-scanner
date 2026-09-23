@@ -460,7 +460,7 @@ Desde la Etapa 13, cada unidad se especifica como change de OpenSpec (`openspec/
 - [x] T2 — ObjectStore resembrado: config sembrada == versionada, `swing_eod_short.enabled = false` en `storage/`
 - [x] T3 — PLAN §7 resincronizado + CLAUDE.md flujo paso 1 + nota de supersesión en etapa-11 *(2026-09-23)*
 - [x] T4/T5 — Node + OpenSpec instalados; `openspec init` solo Claude Code; `openspec validate --all --strict` exit 0 *(2026-09-23: Node 26.9.0, openspec 1.13.1, perfil custom core+verify, delivery commands, `config.yaml` verificado)*
-- [ ] T6/T7 — `AGENTS.md` de solo lectura retirado; `run_review.sh` apunta a la ruta nueva y acepta `CHANGE=<id>`; CLAUDE.md con reglas OpenSpec + modelo de ramas + disposición de la documentación
+- [ ] T6/T7 — `AGENTS.md` de solo lectura retirado; `run_review.sh` opcional (Codex no disponible) y apuntando a la ruta nueva; CLAUDE.md con reglas OpenSpec + modelo de ramas + disposición de la documentación + revisión por defecto `/opsx:verify` + `/code-review`
 - [ ] T8 — spike `chore-openspec-smoke`: ciclo completo con `/opsx:*` (validate antes de archive, Purpose, retiro manual) sin flags prohibidos ni requisitos duplicados
 - [ ] T9 — baseline `baselines/scan-vYYYY.MM.DD-baseline/` (resultados + manifiesto), tarball fuera del repo, 0 tickers fuera de `swing_advances`, tag
 - [ ] T10 — merge `--no-ff` a `develop`, `main` == `develop`, tags en `origin`, ramas integradas borradas

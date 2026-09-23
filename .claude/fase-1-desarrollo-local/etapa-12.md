@@ -126,7 +126,7 @@ activo en su sitio o queda congelado como historia.
 | `.claude/fase-1-desarrollo-local/` | Specs y bitácoras E0–E12, roadmaps | Se queda y **se congela al cerrar la Etapa 12** | Es historia, sin formato OpenSpec. Desde la Etapa 13 no se crean más `etapa-NN.md` |
 | `docs/conceptos/`, `docs/research/` | Explicaciones y research | Se quedan | OpenSpec no cubre documentación explicativa |
 | `docs/ROADMAP.md`, `docs/DEVLOG.md` | Fases y diario | Se quedan | Se ponen al día al cerrar la Etapa 11 (una entrada por etapa, con link al change archivado) |
-| `revisiones/` | Informes y logs de Codex (17 MB) | Se queda | La referencian la triage y PLAN 9B |
+| `revisiones/` | Informes y logs de Codex (17 MB) | Se queda; solo crece si se reactiva Codex | La referencian la triage y PLAN 9B |
 | `scripts/poc/` | Spec y bitácora del POC Finnhub | Se queda | Diferido (roadmap §6) |
 
 **Equivalencias desde la Etapa 13:**
@@ -223,36 +223,43 @@ Correr `openspec init` en la raíz eligiendo **únicamente** Claude Code. Antes 
 - `config.yaml` escrito con `context` (idioma es, con encabezados y SHALL/MUST en inglés), `rules` para los 4 artefactos y `operations.apply/archive.guidance`. Verificado con `openspec instructions`: se inyectan context, las 4 reglas y las dos guías.
 - **Trampa de YAML encontrada:** un ítem con `": "` sin comillas se parsea como mapa, y OpenSpec **descarta sin fallar todas las reglas** de ese artefacto (avisa "must be an array of strings, ignoring"). Solución: entrecomillar. Para verificar tras cualquier edición: `openspec instructions <artefacto> --change <id>` no debe decir "ignoring".
 
-### T6 — Retirar el `AGENTS.md` de solo lectura (H10)
+### T6 — Retirar el `AGENTS.md` de solo lectura (H10) y dejar `run_review.sh` como opcional
+
+**Contexto (2026-09-23):** Codex ya no está disponible (`which codex` → no encontrado). `run_review.sh` deja de ser
+parte del ciclo y pasa a ser **opcional**: solo se usa si se vuelve a habilitar Codex. **La revisión por defecto es
+`/opsx:verify` (gate G5) más `/code-review`** (regla 6 de *Manejo de ramas*). Ningún gate depende de Codex.
 
 1. `git mv AGENTS.md docs/review/codex-review-prompt.md`.
-2. En [run_review.sh:47](../../scripts/run_review.sh#L47), cambiar "los criterios de AGENTS.md" por la ruta nueva, **explícita**. Codex ya no la encontrará sola: solo lee `AGENTS.md` de la raíz. El modo de solo lectura lo sigue garantizando `--sandbox read-only` (L55), no el texto del prompt.
-3. Corregir la ruta en la línea de comentario (L39).
-4. **Ampliación aprobada (2026-09-23): `CHANGE=<id>`.** `run_review.sh` acepta la variable de entorno `CHANGE`. Con ella, la revisión toma como alcance `openspec/changes/<id>/` (o `openspec/changes/archive/*-<id>/` si ya está archivado), en lugar de `etapa-NN.md`. Sin `CHANGE`, el comportamiento actual no cambia.
-5. Actualizar la mención de `AGENTS.md` en [docs/conceptos/code-review-codex-vs-anthropic.md](../../docs/conceptos/code-review-codex-vs-anthropic.md) a la ruta nueva.
-6. **Agregar `DRY_RUN=1`** a `run_review.sh`: imprime etapa, `ref` y `OUTDIR` y **no** ejecuta `codex exec` ni `codex_usage.sh`. Hoy el script no tiene ese modo, y sin él no se puede verificar T6 sin gastar Codex.
-7. **Semántica de `CHANGE`:** se usa junto con el número de etapa, que sigue definiendo la etiqueta del prompt y el nombre del informe: `CHANGE=add-data-coverage-gate bash scripts/run_review.sh 13`. Con `CHANGE` se exige un solo número de etapa (sin rango).
-8. **Alinear el prompt movido** (`docs/review/codex-review-prompt.md`) con el flujo nuevo, sin reescribirlo:
-   - la línea de fuentes de verdad (hoy L23: `PLAN.md > SPECS.md > CLAUDE.md`) pasa a remitir a la cadena de precedencia de CLAUDE.md;
-   - el paso 1 de la metodología (hoy L33: "la etapa marcada en progreso/pendiente") pasa a "la etapa activa según la tabla *Secuencia del ciclo* de PLAN §7 y, si el alcance es un change, sus `proposal`/`design`/`tasks`/`specs`";
-   - la fila "Datos Fase 1" (hoy L79: "Stooq → LEAN; Alpaca diferido") refleja la Opción C de 9A.
-   El texto del prompt dentro de `run_review.sh` (L48: "PLAN.md/SPECS.md como fuentes de verdad") se ajusta igual.
+2. `run_review.sh`, cambios mínimos (sin funciones nuevas):
+   - cabecera: "OPCIONAL — requiere Codex CLI; la revisión por defecto es `/opsx:verify` + `/code-review`";
+   - **guard al inicio**, antes del `mkdir` de `OUTDIR` (L28): si `command -v codex` falla, mensaje claro y `exit 1`, **sin crear** `revisiones/<stamp>/`;
+   - L47: "los criterios de AGENTS.md" → la ruta nueva, explícita (Codex solo lee `AGENTS.md` de la raíz). El modo de solo lectura lo sigue garantizando `--sandbox read-only` (L55);
+   - L39: corregir la ruta en el comentario;
+   - L40-43: si no existe `etapa-NN.md`, el aviso dice explícitamente que desde la Etapa 13 el alcance vive en `openspec/changes/<id>/` y que el script **todavía no lo soporta** (ver diferido abajo). Así no cae en silencio a PLAN.md.
+3. **Alinear el prompt movido** (`docs/review/codex-review-prompt.md`) con el flujo nuevo, sin reescribirlo, para que no contradiga CLAUDE.md si Codex vuelve:
+   - L23 (fuentes de verdad `PLAN.md > SPECS.md > CLAUDE.md`) → remite a la cadena de precedencia de CLAUDE.md;
+   - L33 (paso 1 de la metodología, "etapa en progreso/pendiente") → "la etapa activa según la tabla *Secuencia del ciclo* de PLAN §7 y, si el alcance es un change, sus `proposal`/`design`/`tasks`/`specs`";
+   - L79 ("Datos Fase 1: Stooq → LEAN; Alpaca diferido") → refleja la Opción C de 9A;
+   - L48 de `run_review.sh` ("PLAN.md/SPECS.md como fuentes de verdad") igual.
+4. [docs/conceptos/code-review-codex-vs-anthropic.md](../../docs/conceptos/code-review-codex-vs-anthropic.md): actualizar la mención de `AGENTS.md` y marcar Codex como **opcional (no instalado desde 2026-09-23)**. La recomendación "al cerrar la etapa → `run_review.sh`" (L68) pasa a "`/opsx:verify` (G5) + `/code-review`; `run_review.sh` solo si Codex está habilitado".
 
-**Por qué la ampliación de `CHANGE=<id>`:**
-- Hoy `run_review.sh` define el alcance buscando `.claude/fase-1-desarrollo-local/etapa-NN.md` (L35). Si no lo encuentra, cae a "la sección de la Etapa N en PLAN.md" (L40-43).
-- Desde la Etapa 13 no habrá `etapa-NN.md` (ver *Disposición de la documentación*). Sin la ampliación, toda revisión de Codex de la 13 en adelante caería en silencio a PLAN.md, que solo tiene un resumen de los "Done when". Perdería `proposal.md`, `design.md`, `tasks.md` y los escenarios de `specs/`, que es justo lo que la revisión debe contrastar con el código.
-- Se hace en T6 porque T6 ya abre `run_review.sh` para cambiar la ruta del prompt: un solo cambio coherente al script, en lugar de dos.
-- Es aditivo: las revisiones de etapas históricas (`bash scripts/run_review.sh 5 8`) siguen funcionando igual.
+**Por qué se sigue moviendo `AGENTS.md` aunque no haya Codex:** varias herramientas de agentes (Codex, Cursor, Copilot y otras) leen el `AGENTS.md` de la raíz como instrucciones generales. Dejarlo es un riesgo latente: el día que se use cualquiera de ellas, recibe "NUNCA modifiques archivos", que choca con `/opsx:apply`. Moverlo cuesta un `git mv` y deja el prompt junto a la herramienta opcional que lo usa.
+
+**Por qué `CHANGE=<id>` y `DRY_RUN` se difieren** (se habían aprobado para T6 antes de saber que Codex no está):
+- su único beneficiario es `run_review.sh`, que hoy no se puede ejecutar;
+- construirlos ahora sería código sin uso ni forma real de probarlo;
+- el aviso explícito del paso 2 evita el único riesgo que motivaba la ampliación: que la revisión caiga en silencio a PLAN.md;
+- quedan registrados en *Diferidos* (roadmap §4) con su disparador: "si se reactiva Codex, implementar `CHANGE=<id>` + `DRY_RUN` antes de revisar una etapa ≥13".
 
 **Criterio de aceptación:**
-- `test ! -f AGENTS.md`, o bien, si T5 lo creó, que no contenga "NUNCA modifiques".
+- `test ! -f AGENTS.md` y `test -f docs/review/codex-review-prompt.md`.
 - `grep -n "AGENTS.md" scripts/*.sh` = 0 resultados.
 - `bash -n scripts/run_review.sh` OK.
-- Con `DRY_RUN=1` (sin llamar a `codex`), `CHANGE=<id>` resuelve el alcance a `openspec/changes/<id>/` cuando existe y a `openspec/changes/archive/*-<id>/` cuando solo está archivado. Se verifica con **dos directorios temporales** (`openspec/changes/tmp-review-probe/` y `openspec/changes/archive/2000-01-01-tmp-review-probe/`) que se crean para la prueba y se borran antes del commit. No depende de T8.
-- `CHANGE` con un id inexistente → error explícito y exit ≠ 0 (no cae en silencio a PLAN.md).
-- Sin `CHANGE`, `DRY_RUN=1 bash scripts/run_review.sh 5` imprime el mismo `ref` que hoy (`etapa-05.md`).
+- Sin Codex instalado: `bash scripts/run_review.sh 5` imprime el mensaje de opcional, sale con exit 1 y **no crea** ningún directorio nuevo en `revisiones/` (se compara `ls revisiones` antes y después).
+- En `docs/review/codex-review-prompt.md`: el párrafo de fuentes de verdad remite a la cadena de CLAUDE.md (`grep -c "precedencia de CLAUDE.md"` ≥ 1), ya no aparece "máxima precedencia" junto a `PLAN.md` (`grep -c "máxima precedencia"` = 0) y la fila de datos menciona la Opción C (`grep -c "Opción C"` ≥ 1).
+- `docs/conceptos/code-review-codex-vs-anthropic.md` marca Codex como opcional y nombra la revisión por defecto.
 
-**Notas:** las menciones dentro de `revisiones/2026*/…-log.md` son históricas y no se tocan.
+**Notas:** las menciones dentro de `revisiones/2026*/…` son históricas y no se tocan. `scripts/codex_usage.sh` queda igual (también opcional; solo lee `~/.codex/sessions` si existe).
 
 ### T7 — CLAUDE.md: reglas de convivencia con OpenSpec (roadmap §0.4)
 
@@ -270,7 +277,7 @@ Añadir una sección "OpenSpec y PLAN.md" con:
 - **Disposición de la documentación:** la tabla de esta spec (dónde va cada tipo de documento desde la Etapa 13).
 - **Convención de commits:** `[Etapa N][<change-id>]` y `[config]`.
 - **Modelo de ramas:** resumen de las 6 reglas de *Manejo de ramas*, en particular la corrida semanal desde `main` con reseed.
-- Los comandos `openspec` y `/opsx:*` en la sección Comandos, más la regla "los archivos de `.claude/commands/opsx/` los genera `openspec update`; no se editan a mano".
+- Los comandos `openspec` y `/opsx:*` en la sección Comandos, más la revisión por defecto (`/opsx:verify` + `/code-review`) y `run_review.sh` marcado como opcional (requiere Codex), más la regla "los archivos de `.claude/commands/opsx/` los genera `openspec update`; no se editan a mano".
 - **Secciones existentes que hay que tocar** (no basta con agregar una sección nueva):
   - *Documentos y precedencia* (L5-9): la lista y la regla de conflicto pasan a la cadena nueva;
   - *Flujo de trabajo*, pasos 3–5: el Estado se cambia solo en PLAN.md; desde la Etapa 13 el progreso granular va en `tasks.md`; el cierre incluye `archive` (cuando aplica), merge `--no-ff` a `develop` y promoción a `main`;
@@ -304,7 +311,6 @@ El change agrega un requisito trivial, p. ej. "el repo declara su flujo en CLAUD
 - `/opsx:archive` archiva con `mv`, así que el paso 4 queda: `openspec validate chore-openspec-smoke --strict` → `/opsx:archive`;
 - la regla del Purpose, al retirar el requisito trivial.
 
-T8 también sirve de prueba para `CHANGE=<id>` de T6.
 
 ### T9 — Baseline long para G4 (roadmap §0.5)
 
@@ -373,7 +379,7 @@ remotamente las ramas ya integradas en `develop`:
 - Limpieza del working tree y desactivación del short por config.
 - Resincronización de PLAN.md y ajustes de CLAUDE.md.
 - Instalación, inicialización y spike de OpenSpec.
-- Retiro de `AGENTS.md` y adaptación de `run_review.sh`.
+- Retiro de `AGENTS.md` y adaptación mínima de `run_review.sh` como herramienta opcional (Codex no disponible).
 - Baseline de G4 (resultados, manifiesto y tarball).
 - Fase A (transición de ramas) y el modelo de ramas en CLAUDE.md.
 - Merge a `develop`, promoción a `main` y borrado de las ramas ya integradas.
@@ -396,7 +402,7 @@ remotamente las ramas ya integradas en `develop`:
 - [x] T3: PLAN §7 con 0/5B/6B/9A/9B/10/11/12/13/14/15 en su estado real y la tabla de secuencia; CLAUDE.md, paso 1, actualizado; nota de supersesión en `etapa-11-…md` *(2026-09-23: 8 entradas nuevas + tabla de 7 filas; estados 0/6B `completada`, 5B/9A `pausada`; link roto de etapa-04 corregido)*
 - [x] T4: `node` y `openspec` instalados; versiones anotadas y compatibles con `engines` *(2026-09-23: Node v26.9.0 ≥ 20.19.0; openspec 1.13.1, la última publicada)*
 - [x] T5: `openspec/` inicializado solo para Claude Code; diff revisado; `openspec validate --all --strict` exit 0 *(2026-09-23: perfil custom core+verify, delivery commands, 7 comandos, 0 archivos versionados modificados; `config.yaml` verificado con `openspec instructions`)*
-- [ ] T6: sin `AGENTS.md` de solo lectura en la raíz; `run_review.sh` apunta a `docs/review/codex-review-prompt.md` y acepta `CHANGE=<id>` (resuelve activo y archivado, verificado en modo de prueba); `bash -n` OK
+- [ ] T6: sin `AGENTS.md` de solo lectura en la raíz; `run_review.sh` opcional, apunta a `docs/review/codex-review-prompt.md` y, sin Codex, sale con mensaje y exit 1 sin crear directorios; prompt y concepto alineados; `bash -n` OK
 - [ ] T7: CLAUDE.md con la sección de OpenSpec y una única cadena de precedencia
 - [ ] T8: `chore-openspec-smoke` recorrió propose→validate→apply→verify→sync→validate→archive sin errores ni flags prohibidos; reglas de `config.yaml` presentes en el proposal; requisito sin duplicar; Purpose escrito; capability retirada a mano y `validate --all --strict` exit 0
 - [ ] T9: ventana commiteada antes del backtest; `baselines/scan-vYYYY.MM.DD-baseline/` versionado; `shasum -c` OK; tarball fuera del repo; 0 tickers fuera de `swing_advances`; tag anotado pusheado
