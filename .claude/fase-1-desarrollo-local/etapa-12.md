@@ -230,6 +230,13 @@ Correr `openspec init` en la raíz eligiendo **únicamente** Claude Code. Antes 
 3. Corregir la ruta en la línea de comentario (L39).
 4. **Ampliación aprobada (2026-09-23): `CHANGE=<id>`.** `run_review.sh` acepta la variable de entorno `CHANGE`. Con ella, la revisión toma como alcance `openspec/changes/<id>/` (o `openspec/changes/archive/*-<id>/` si ya está archivado), en lugar de `etapa-NN.md`. Sin `CHANGE`, el comportamiento actual no cambia.
 5. Actualizar la mención de `AGENTS.md` en [docs/conceptos/code-review-codex-vs-anthropic.md](../../docs/conceptos/code-review-codex-vs-anthropic.md) a la ruta nueva.
+6. **Agregar `DRY_RUN=1`** a `run_review.sh`: imprime etapa, `ref` y `OUTDIR` y **no** ejecuta `codex exec` ni `codex_usage.sh`. Hoy el script no tiene ese modo, y sin él no se puede verificar T6 sin gastar Codex.
+7. **Semántica de `CHANGE`:** se usa junto con el número de etapa, que sigue definiendo la etiqueta del prompt y el nombre del informe: `CHANGE=add-data-coverage-gate bash scripts/run_review.sh 13`. Con `CHANGE` se exige un solo número de etapa (sin rango).
+8. **Alinear el prompt movido** (`docs/review/codex-review-prompt.md`) con el flujo nuevo, sin reescribirlo:
+   - la línea de fuentes de verdad (hoy L23: `PLAN.md > SPECS.md > CLAUDE.md`) pasa a remitir a la cadena de precedencia de CLAUDE.md;
+   - el paso 1 de la metodología (hoy L33: "la etapa marcada en progreso/pendiente") pasa a "la etapa activa según la tabla *Secuencia del ciclo* de PLAN §7 y, si el alcance es un change, sus `proposal`/`design`/`tasks`/`specs`";
+   - la fila "Datos Fase 1" (hoy L79: "Stooq → LEAN; Alpaca diferido") refleja la Opción C de 9A.
+   El texto del prompt dentro de `run_review.sh` (L48: "PLAN.md/SPECS.md como fuentes de verdad") se ajusta igual.
 
 **Por qué la ampliación de `CHANGE=<id>`:**
 - Hoy `run_review.sh` define el alcance buscando `.claude/fase-1-desarrollo-local/etapa-NN.md` (L35). Si no lo encuentra, cae a "la sección de la Etapa N en PLAN.md" (L40-43).
@@ -241,7 +248,8 @@ Correr `openspec init` en la raíz eligiendo **únicamente** Claude Code. Antes 
 - `test ! -f AGENTS.md`, o bien, si T5 lo creó, que no contenga "NUNCA modifiques".
 - `grep -n "AGENTS.md" scripts/*.sh` = 0 resultados.
 - `bash -n scripts/run_review.sh` OK.
-- Sin ejecutar Codex (tiene costo): `CHANGE=<id>` resuelve el alcance a `openspec/changes/<id>/` cuando existe y al directorio archivado cuando no. Se verifica con un modo de prueba que imprime el `ref` sin llamar a `codex` (p. ej. `DRY_RUN=1`) contra el change de T8, activo y después archivado.
+- Con `DRY_RUN=1` (sin llamar a `codex`), `CHANGE=<id>` resuelve el alcance a `openspec/changes/<id>/` cuando existe y a `openspec/changes/archive/*-<id>/` cuando solo está archivado. Se verifica con **dos directorios temporales** (`openspec/changes/tmp-review-probe/` y `openspec/changes/archive/2000-01-01-tmp-review-probe/`) que se crean para la prueba y se borran antes del commit. No depende de T8.
+- `CHANGE` con un id inexistente → error explícito y exit ≠ 0 (no cae en silencio a PLAN.md).
 - Sin `CHANGE`, `DRY_RUN=1 bash scripts/run_review.sh 5` imprime el mismo `ref` que hoy (`etapa-05.md`).
 
 **Notas:** las menciones dentro de `revisiones/2026*/…-log.md` son históricas y no se tocan.
@@ -262,25 +270,32 @@ Añadir una sección "OpenSpec y PLAN.md" con:
 - **Disposición de la documentación:** la tabla de esta spec (dónde va cada tipo de documento desde la Etapa 13).
 - **Convención de commits:** `[Etapa N][<change-id>]` y `[config]`.
 - **Modelo de ramas:** resumen de las 6 reglas de *Manejo de ramas*, en particular la corrida semanal desde `main` con reseed.
-- Los comandos `openspec` en la sección Comandos.
+- Los comandos `openspec` y `/opsx:*` en la sección Comandos, más la regla "los archivos de `.claude/commands/opsx/` los genera `openspec update`; no se editan a mano".
+- **Secciones existentes que hay que tocar** (no basta con agregar una sección nueva):
+  - *Documentos y precedencia* (L5-9): la lista y la regla de conflicto pasan a la cadena nueva;
+  - *Flujo de trabajo*, pasos 3–5: el Estado se cambia solo en PLAN.md; desde la Etapa 13 el progreso granular va en `tasks.md`; el cierre incluye `archive` (cuando aplica), merge `--no-ff` a `develop` y promoción a `main`;
+  - *Gotchas*: agregar los de OpenSpec (archive con `mv`, Purpose, YAML "ignoring").
 
-**Criterio de aceptación:** la sección existe, las 5 reglas de §0.4 y el modelo de ramas aparecen, y la precedencia de CLAUDE.md (`PLAN.md > SPECS.md > este archivo`) se reemplaza por la cadena nueva **sin dejar dos versiones**: `grep -n "PLAN.md > SPECS.md" CLAUDE.md` = 0.
+**Criterio de aceptación:** la sección existe, las 4 reglas de §0.4 (con las prohibiciones ampliadas en T5), el modelo de ramas y la tabla de disposición aparecen; los pasos 3–5 del flujo describen el cierre nuevo; y la precedencia de CLAUDE.md (`PLAN.md > SPECS.md > este archivo`) se reemplaza por la cadena nueva **sin dejar dos versiones**: `grep -n "PLAN.md > SPECS.md" CLAUDE.md` = 0.
 
 ### T8 — Spike del ciclo OpenSpec con un change de prueba
 
 Recorrer el ciclo completo con `chore-openspec-smoke`:
-1. `/opsx:propose` → `openspec validate chore-openspec-smoke --strict`
-2. `/opsx:apply` (sin código)
-3. `/opsx:verify` → `/opsx:sync`
-4. `openspec archive chore-openspec-smoke --yes`
+1. `/opsx:propose` → `openspec validate chore-openspec-smoke --strict` (G0)
+2. `/opsx:apply` (sin código: G2/G3/G4 no aplican y se anota así en `tasks.md`)
+3. `/opsx:verify` (G5) → `/opsx:sync`
+4. `openspec validate chore-openspec-smoke --strict` → `/opsx:archive`
+5. Escribir el Purpose de la capability creada (≥50 caracteres) → `openspec validate --all --strict`
+6. Commit aparte: **retirar la capability a mano** (`git rm -r openspec/specs/<capability>/`) → `openspec validate --all --strict`. Se hace a mano, no con un change REMOVED, porque retirar la última requirement de una capability exige `retire_capabilities: true`: sería probar un camino que el ciclo no usa. El change archivado queda como historia.
 
 El change agrega un requisito trivial, p. ej. "el repo declara su flujo en CLAUDE.md".
 
 **Criterio de aceptación:**
-- Cada comando sale con exit 0 **sin** `--no-validate` ni `--skip-specs`.
-- El requisito aparece **una sola vez** en `openspec/specs/` (no se duplica por hacer sync y luego archive).
-- El change queda en `openspec/changes/archive/`.
-- Después, un commit aparte retira el requisito trivial y `openspec validate --all --strict` sigue en exit 0.
+- Los comandos de CLI (`openspec validate`) salen con exit 0; los `/opsx:*` terminan sin errores y `/opsx:verify` sin CRITICAL. Nunca se usa `--no-validate` ni `--skip-specs`.
+- **Las reglas de `config.yaml` funcionan en el repo real:** el `proposal.md` generado trae Etapa y rama, "Diferencias esperadas en la watchlist" y "Rollback", y los artefactos están en español con SHALL/MUST en inglés.
+- El requisito aparece **una sola vez** en `openspec/specs/` después de sync + archive.
+- El change queda en `openspec/changes/archive/AAAA-MM-DD-chore-openspec-smoke/`.
+- Con `Purpose` escrito, `validate --all --strict` → exit 0; tras el retiro manual, también exit 0.
 
 **Notas:** si `archive` después de `sync` duplica deltas o exige `--skip-specs`, **se detiene la etapa** y se propone el ajuste de §0.4 y de CLAUDE.md antes de seguir (paso 6 del flujo).
 
@@ -295,15 +310,16 @@ T8 también sirve de prueba para `CHANGE=<id>` de T6.
 
 1. Apartar los resultados viejos: `mv storage/results storage/results.bak-20260923`. Contienen corridas dev de 2013 y un `latest copy.json`; no se borran.
 2. Fijar la ventana del baseline: `set_end_date(2026, 9, 18)` en la rama prod de [main.py:40](../../trade-scanner/main.py#L40); hoy dice 2026-09-01 porque la edición se descartó. **Esta edición sí se commitea en esta rama**, como "ventana fija de G4": los G4 de las Etapas 13 y 5B deben correr sobre la misma ventana hasta que la Etapa 11 elimine las fechas hardcodeadas. Es la misma ventana de la corrida del 20-sep, así se puede comparar con H1/H2.
+   **Commit de la ventana antes de correr** (`[Etapa 12] T9: ventana fija de G4 (2026-04-02 → 2026-09-18)`), para que el README del baseline cite el commit exacto con el que se generó.
    Después, `lean backtest "trade-scanner"`. `trade-scanner/config.json` ya tiene `"env": "prod"` versionado (`5d1c429`), así que no hay que tocar nada. Solo long.
-3. Copiar `storage/results/swing_eod/2026*.json` a `baselines/scan-v2026.09.23-baseline/results/`.
+3. Copiar `storage/results/swing_eod/2026*.json` a `baselines/scan-vYYYY.MM.DD-baseline/results/` (fecha real de ejecución de T9).
 4. Generar `baselines/…/manifest.sha256`. Cubre:
    - todos los `data/equity/usa/daily/*.zip`;
    - `storage/config/*.json`;
    - `storage/universes/*.csv`.
-5. Crear el tarball **fuera del repo** con esos mismos archivos (p. ej. `~/trade-scanner-snapshots/scan-v2026.09.23-baseline.tar.gz`).
-6. Escribir `baselines/…/README.md` con: ruta del tarball, ventana, commit, `config_sha256` y el comando para restaurar.
-7. Commit y tag `scan/v2026.09.23-baseline`.
+5. Crear el tarball **fuera del repo** con esos mismos archivos (p. ej. `~/trade-scanner-snapshots/scan-vYYYY.MM.DD-baseline.tar.gz`).
+6. Escribir `baselines/…/README.md` con: ruta del tarball, ventana, **commit de la ventana** (paso 2), `config_sha256`, el comando de verificación de tickers y el comando para restaurar.
+7. Commit del baseline y tag **anotado** `scan/vYYYY.MM.DD-baseline` (`git tag -a`), pusheado.
 
 **Criterio de aceptación:**
 - `shasum -a 256 -c manifest.sha256` → OK sobre el working tree.
@@ -317,7 +333,15 @@ T8 también sirve de prueba para `CHANGE=<id>` de T6.
 
 ### T10 — Cierre: merge a `develop`, promoción a `main` y limpieza de ramas
 
-Aplicar la regla 2 de *Manejo de ramas*: `git merge --no-ff` de `feature/etapa-12-bootstrap-openspec` en `develop`
+**Orden:** T10 es la última tarea; **T11 se ejecuta antes**.
+
+0. **Commit de cierre** en la rama:
+   - PLAN.md: Etapa 12 y su fila de la tabla → `completada`, con evidencia;
+   - spec: Estado `completada` y todos los Done when marcados;
+   - bitácora: sección de cierre (qué quedó, qué sigue: Etapa 13);
+   - push.
+
+Después, aplicar la regla 2 de *Manejo de ramas*: `git merge --no-ff` de `feature/etapa-12-bootstrap-openspec` en `develop`
 → `main` fast-forward → tag `scan/v2026.09.DD-1` → push de `develop`, `main` y los tags. Después, borrar local y
 remotamente las ramas ya integradas en `develop`:
 - `feature/etapa-3-universe-contract`
@@ -333,11 +357,11 @@ remotamente las ramas ya integradas en `develop`:
 - `git ls-remote --tags origin` incluye `scan/v2026.09.23-pre-ciclo`, el tag del baseline de T9 (`scan/vYYYY.MM.DD-baseline`, con la fecha real de T9) y el tag de promoción.
 - Antes de borrar cada rama, `git branch --merged develop` la lista.
 
-**Notas:** la rama de la Etapa 13 se crea al **empezar** la Etapa 13, no aquí.
+**Notas:** la rama de la Etapa 13 se crea al **empezar** la Etapa 13, no aquí. Borrado remoto: `git push origin --delete <rama>`. El remoto se borra con autorización del usuario (dada el 2026-09-23 al aprobar el modelo de ramas).
 
 ### T11 — Cerrar la pregunta del POC Finnhub
 
-Añadir una línea en `docs/ROADMAP.md`, bajo los candidatos de Fase 2, con las dos vías de integración (roadmap §6). Registrar la decisión "diferido a post-V1, sin archivar" para que la pregunta del commit `f8ded63` quede cerrada.
+**Se ejecuta antes de T10.** Añadir en `docs/ROADMAP.md`, bajo `# Post V1` (hoy tiene `## Universo`, `## Estrategias`, `## Datos fundamentales` y `## Ejecución futura`; no existe una sección de "candidatos de Fase 2"), una entrada con las dos vías de integración (roadmap §6). Registrar la decisión "diferido a post-V1, sin archivar" para que la pregunta del commit `f8ded63` quede cerrada.
 
 **Criterio de aceptación:** `grep -n "Finnhub" docs/ROADMAP.md` ≥ 1, con la decisión escrita.
 
@@ -356,7 +380,7 @@ Añadir una línea en `docs/ROADMAP.md`, bajo los candidatos de Fase 2, con las 
 - Una línea sobre Finnhub en `docs/ROADMAP.md`.
 
 ❌ **No entra, aunque parezca relacionado:**
-- Ningún cambio en `trade-scanner/core/`, `strategies/` ni en la lógica de `main.py` (solo la fecha semanal ya editada).
+- Ningún cambio en `trade-scanner/core/`, `strategies/` ni en la lógica de `main.py`; la única edición de `main.py` es la ventana fija de T9 (`set_end_date`).
 - El preflight de cobertura y `session_date` (Etapa 13).
 - La partición de universos / #12 (Etapa 14).
 - Los `filters` del short, SSR y el vocabulario absoluto (Etapa 15).
@@ -366,6 +390,7 @@ Añadir una línea en `docs/ROADMAP.md`, bajo los candidatos de Fase 2, con las 
 
 ## Done when
 
+- [x] Fase A: `develop` y `main` avanzados por fast-forward y pusheados; tag `scan/v2026.09.23-pre-ciclo` en `origin`; rama de la etapa creada con la spec como primer commit *(verificado 2026-09-23: `main` = `develop` = `origin/*` = `f8ded63`; tag anotado → `f8ded63` en `origin`; `origin/feature/etapa-12-bootstrap-openspec` = `9e5125f`)*
 - [x] T1: `run_tests.sh` verde; cifra registrada en PLAN; `docker run hello-world` OK *(2026-09-23: **304 passed**, 0 failed, 0 skipped, 13 warnings; hello-world OK. El registro en PLAN se hace en T3)*
 - [x] T2: config sembrada == config versionada (hashes iguales); short `false` en `storage/`; sin commit *(2026-09-23: sha256 `1be6104e…` en ambos; universos del 09-19 conservados)*
 - [x] T3: PLAN §7 con 0/5B/6B/9A/9B/10/11/12/13/14/15 en su estado real y la tabla de secuencia; CLAUDE.md, paso 1, actualizado; nota de supersesión en `etapa-11-…md` *(2026-09-23: 8 entradas nuevas + tabla de 7 filas; estados 0/6B `completada`, 5B/9A `pausada`; link roto de etapa-04 corregido)*
@@ -373,15 +398,15 @@ Añadir una línea en `docs/ROADMAP.md`, bajo los candidatos de Fase 2, con las 
 - [x] T5: `openspec/` inicializado solo para Claude Code; diff revisado; `openspec validate --all --strict` exit 0 *(2026-09-23: perfil custom core+verify, delivery commands, 7 comandos, 0 archivos versionados modificados; `config.yaml` verificado con `openspec instructions`)*
 - [ ] T6: sin `AGENTS.md` de solo lectura en la raíz; `run_review.sh` apunta a `docs/review/codex-review-prompt.md` y acepta `CHANGE=<id>` (resuelve activo y archivado, verificado en modo de prueba); `bash -n` OK
 - [ ] T7: CLAUDE.md con la sección de OpenSpec y una única cadena de precedencia
-- [ ] T8: `chore-openspec-smoke` recorrió propose→validate→apply→verify→sync→archive con exit 0, sin flags prohibidos y sin duplicar requisitos; retirado después
-- [ ] T9: `baselines/scan-v2026.09.23-baseline/` versionado; `shasum -c` OK; tarball fuera del repo; 0 tickers fuera de `swing_advances`; tag creado
-- [x] Fase A: `develop` y `main` avanzados por fast-forward y pusheados; tag `scan/v2026.09.23-pre-ciclo` en `origin`; rama de la etapa creada con la spec como primer commit *(verificado 2026-09-23: `main` = `develop` = `origin/*` = `f8ded63`; tag anotado → `f8ded63` en `origin`; `origin/feature/etapa-12-bootstrap-openspec` = `9e5125f`)*
-- [ ] T10: merge `--no-ff` `[Etapa 12] merge:` en `develop`; `main` == `develop`; tag de promoción pusheado; en `origin` solo quedan `main` y `develop`
+- [ ] T8: `chore-openspec-smoke` recorrió propose→validate→apply→verify→sync→validate→archive sin errores ni flags prohibidos; reglas de `config.yaml` presentes en el proposal; requisito sin duplicar; Purpose escrito; capability retirada a mano y `validate --all --strict` exit 0
+- [ ] T9: ventana commiteada antes del backtest; `baselines/scan-vYYYY.MM.DD-baseline/` versionado; `shasum -c` OK; tarball fuera del repo; 0 tickers fuera de `swing_advances`; tag anotado pusheado
+- [ ] T10: commit de cierre (PLAN, spec y bitácora → `completada`); merge `--no-ff` `[Etapa 12] merge:` en `develop`; `main` == `develop`; tag de promoción pusheado; en `origin` solo quedan `main` y `develop`
 - [ ] T11: decisión sobre Finnhub escrita en `docs/ROADMAP.md`
-- [ ] Commits `[Etapa 12] …`, uno por unidad coherente (spec en A6, T3, T4–T5, T6–T7, T8, T9 con la ventana fija, T11); bitácora `etapa-12-decisiones-y-pendientes.md` con versiones, hashes y hallazgos
+- [ ] Commits `[Etapa 12] …`, uno por unidad coherente (spec en A6, T1–T2, T3, T4–T5, T6, T7, T8 (+ retiro), T9 ventana + T9 baseline, T11, cierre T10); bitácora `etapa-12-decisiones-y-pendientes.md` con versiones, hashes y hallazgos
 
 ## Preguntas abiertas
 
 - [ ] **Ventana del baseline:** se propone 2026-04-02 → 2026-09-18 (la misma que la corrida del 20-sep, para comparar con H1/H2). ¿Otra?
 - [ ] **Ubicación del tarball:** se propone `~/trade-scanner-snapshots/`. ¿Otra (disco externo, Drive)?
-- [ ] Si T8 revela que `archive` exige `--skip-specs` después de `sync`: ¿se ajusta la regla de §0.4, o se deja de usar `/opsx:sync` y se sincroniza solo al archivar?
+- [x] ~~Si `archive` exige `--skip-specs` después de `sync`~~ — **resuelto en T5**: en el repo temporal, `archive` tras `sync` responde "Specs already in sync" y no duplica. T8 lo confirma con `/opsx:*`.
+- [ ] **Telemetría de OpenSpec** (configuración global de la máquina): ¿se apaga con `openspec config set telemetry.enabled false`? No bloquea.

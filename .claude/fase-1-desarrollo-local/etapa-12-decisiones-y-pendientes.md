@@ -78,6 +78,21 @@ Spec: [etapa-12.md](etapa-12.md) · Rama: `feature/etapa-12-bootstrap-openspec`
 - **T6 ampliado** (aprobado por el usuario): `run_review.sh` acepta `CHANGE=<id>`. El porqué está en la spec, T6: sin esto, las revisiones de la Etapa 13 en adelante caerían en silencio a PLAN.md.
 - **T8 con menos riesgo:** la duplicación ya quedó descartada para la CLI; falta probar el flujo con `/opsx:*` en el repo.
 
+## Revisión de alineación T6–T11 (2026-09-23, antes de iniciar T6)
+
+Se contrastó la spec contra el repo y contra lo decidido o hallado en T1–T5. Hubo 8 correcciones:
+
+1. **T6 no se podía verificar tal como estaba escrito:** pedía `DRY_RUN=1`, pero `run_review.sh` no tiene ese modo. Se agregó como paso.
+2. **T6 dependía de T8:** verificaba `CHANGE=<id>` "contra el change de T8". Ahora usa dos directorios temporales (uno activo y uno archivado). También se definió la semántica de `CHANGE` (va con un solo número de etapa) y un error explícito si el id no existe.
+3. **T6: el prompt movido contradecía el flujo nuevo.** Decía `PLAN > SPECS > CLAUDE` (L23), "etapa en progreso/pendiente" (L33) y "Stooq; Alpaca diferido" (L79). Se alinea sin reescribirlo. Lo mismo para L48 de `run_review.sh`.
+4. **T7:** decía "5 reglas de §0.4", pero son 4. Además faltaba tocar secciones que ya existen en CLAUDE.md (*Documentos y precedencia*, pasos 3–5 del *Flujo*, *Gotchas*), no solo agregar una sección nueva.
+5. **T8:** la lista de pasos seguía mostrando `openspec archive --yes` en lugar de `validate` → `/opsx:archive`. Decía "exit 0" para comandos `/opsx:*`, que no tienen código de salida. No verificaba que las reglas de `config.yaml` funcionaran en el repo real. El retiro de la capability no estaba definido: ahora es manual y documentado (un change REMOVED exigiría `retire_capabilities`).
+6. **T9:** la ventana se commiteaba al final, así que el README del baseline no podía citar el commit con el que se generó. Ahora se commitea **antes** del backtest. Además: fecha genérica en la carpeta y el tag, tag anotado, y el Scope ya no dice "fecha semanal ya editada" (esa edición se descartó).
+7. **T10 no tenía commit de cierre:** faltaba pasar a `completada` PLAN, la spec y la bitácora antes del merge. **T11 se ejecuta antes que T10.**
+8. **T11:** `docs/ROADMAP.md` no tiene una sección de "candidatos de Fase 2". La entrada va bajo `# Post V1`.
+
+Además: la Fase A se movió al principio del Done when; la lista de commits refleja los reales; la pregunta sobre `--skip-specs` se cerró (resuelta en T5); se agregó la de telemetría. PLAN.md se ajustó en las líneas de T8 y T11.
+
 ## Pendientes
 
 - T6 en adelante. **T6 no se inicia hasta que el usuario lo indique.**
