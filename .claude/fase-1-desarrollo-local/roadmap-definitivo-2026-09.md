@@ -54,7 +54,7 @@ Todo lo demás se expresa en estos términos.
 | **G4** | Antes de `sync`, **si el change toca el scan o la salida** | Backtest **prod** con ventana fija; antes de correr se vacía `storage/results/`. Diff de `results/<base>/**/2026*.json` contra `baselines/<tag>/` (ver §0.5); las diferencias deben coincidir con las declaradas en `proposal.md`. dev NO sirve: su override `universe: sample_dev` oculta #12 | `sync` |
 | **G-data** | Antes de G4 (cuando exista U1) | Preflight de cobertura con exit 0 | G4 |
 | **G5** | Antes de `sync` | `/opsx:verify` sin **CRITICAL**; los WARNING se corrigen o se justifican en `design.md`. (verify por sí solo no bloquea `archive`: el bloqueo es convención nuestra) | `sync` y checkboxes de PLAN |
-| **G6** | Cierre | `sync` → checkboxes de PLAN con evidencia citada → `archive` (valida implícitamente; **prohibido** `--no-validate`) → commit `[Etapa N][<id>] …` → merge `--no-ff` a `develop` → fast-forward de `main` + tag `scan/vYYYY.MM.DD-N` (etapa-12 §Manejo de ramas) | — |
+| **G6** | Cierre | `sync` → checkboxes de PLAN con evidencia citada → `openspec validate <id> --strict` → `archive` (la CLI `openspec archive` valida, pero **`/opsx:archive` no**: archiva con `mv`, verificado en Etapa 12 T5; **prohibido** `--no-validate`) → Purpose escrito en cada capability nueva y `openspec validate --all --strict` exit 0 → commit `[Etapa N][<id>] …` → merge `--no-ff` a `develop` → fast-forward de `main` + tag `scan/vYYYY.MM.DD-N` (etapa-12 §Manejo de ramas) | — |
 
 ### 0.3 Primitivas de rollback
 
@@ -77,7 +77,8 @@ composición en `strategies/`).
 2. Equivalencias: etapa `en progreso` ⇔ change activo; "Done when" ⇔ escenarios + gates; `archive` ⇔
    cierre de etapa.
 3. Prohibido: `--no-validate`; `--skip-specs` sin `skip_specs: true` en la metadata; `sync` sin G3/G4/G5;
-   `archive` con CRITICAL abiertos.
+   `archive` con CRITICAL abiertos; `/opsx:archive` sin `openspec validate <id> --strict` previo; confirmar un archive
+   con tareas o artefactos incompletos; "Archive without syncing" si hay delta specs (hallazgos de Etapa 12 T5).
 4. Commits: `[Etapa N][<change-id>] …`; `[config] …` en la vía ligera.
 
 ### 0.5 Baseline de G4 (lo que el tag de git NO captura)

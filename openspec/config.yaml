@@ -1,0 +1,47 @@
+schema: spec-driven
+
+# Contexto inyectado en TODOS los artefactos (proposal/specs/design/tasks).
+# Apunta a las fuentes de verdad en vez de copiarlas: CLAUDE.md y PLAN.md mandan.
+context: |
+  Language: es
+  All artifacts must be written in es.
+  Keep OpenSpec structural headings and SHALL/MUST keywords in English.
+
+  Proyecto: screener multi-estrategia sobre LEAN (QuantConnect, Python 3.11). SOLO escanea:
+  prohibido colocar órdenes (market_order, set_holdings, liquidate...).
+  Precedencia: PLAN.md §7 (tabla "Secuencia del ciclo") > change activo > openspec/specs >
+  SPECS.md > CLAUDE.md. Las reglas duras y el flujo de CLAUDE.md no los anula ningún change.
+  Capas L1–L6 y reglas duras: CLAUDE.md. Gates G0–G6 y rollback:
+  .claude/fase-1-desarrollo-local/roadmap-definitivo-2026-09.md §0.
+  Tests: SOLO `bash scripts/run_tests.sh` (Docker, imagen LEAN); pytest del host no sirve.
+  Umbrales/horarios/universos viven en config/strategies.json (ObjectStore), nunca en código.
+  Cada change corresponde a una Etapa de PLAN.md y a una rama feature/etapa-NN-<change-id>.
+
+# Reglas por tipo de artefacto (claves válidas en spec-driven: proposal, specs, design, tasks).
+rules:
+  proposal:
+    - Indicar la Etapa de PLAN.md y la rama feature/etapa-NN-<change-id>.
+    - Incluir la sección "Diferencias esperadas en la watchlist" (insumo del gate G4); "ninguna" si no toca el scan.
+    - 'Incluir la sección "Rollback": R-cfg (enabled) o R-git (tag/revert), y por qué basta.'
+  design:
+    - Decisiones numeradas D-1, D-2...; las que cruzan changes van a un ADR en .claude/decisions/ y se enlazan.
+  specs:
+    - Cada Scenario debe ser verificable por un test en Docker o por evidencia de backtest citada.
+  tasks:
+    - Cada tarea con criterio de aceptación ejecutable.
+    - Incluir tareas explícitas de gate (G2 tests, G3 backtest dev, G4 backtest prod si toca el scan) y una final de evidencia en bitacora.md.
+
+# Guía para /opsx:apply y /opsx:archive (únicas operaciones soportadas). Es CONSEJO, no se hace
+# cumplir: las mismas reglas están en CLAUDE.md, que sí es obligatorio.
+operations:
+  apply:
+    guidance:
+      - No marcar una tarea [x] sin `bash scripts/run_tests.sh` verde (G2).
+      - No modificar el Estado en PLAN.md; el progreso granular vive solo en tasks.md.
+      - Registrar evidencia (comandos, hashes, conteos) en bitacora.md del change.
+  archive:
+    guidance:
+      - Antes de archivar, correr `openspec validate <change> --strict`; si falla, no archivar.
+      - Nunca confirmar el archivo con artefactos o tareas incompletas; detenerse y reportar.
+      - Nunca elegir "Archive without syncing" si el change tiene delta specs.
+      - Tras archivar una capability nueva, escribir su Purpose (≥50 caracteres) y dejar `openspec validate --all --strict` en exit 0.

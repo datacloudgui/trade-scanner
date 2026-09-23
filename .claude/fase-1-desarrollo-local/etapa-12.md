@@ -26,6 +26,7 @@ Al terminar hay cuatro cosas que hoy no existen:
 | ¿Formato? | **`etapa-12.md` clásico**, nombre con 2 dígitos | Bootstrap: OpenSpec todavía no existe. El nombre `etapa-NN.md` es el que busca `scripts/run_review.sh` (L35) |
 | Numeración del resto del ciclo | Ver la tabla "Secuencia del ciclo" (T3) | Las etapas que ya tienen número lo conservan: 5B, 9 y 11. Solo el trabajo nuevo recibe número (13, 14, 15) |
 | ¿Cómo se desactiva el short? | **R-cfg** (`enabled: false` + reseed) | Frena la contaminación sin revertir código. Todavía no es un rollback limpio: lo será después de la Etapa 14 (roadmap, U3b §Rollback) |
+| ¿Qué pasa con la documentación existente? | **Solo se mueve `AGENTS.md`**; todo lo demás se queda donde está (ver *Disposición de la documentación*) | Mover carpetas rompe links (43 referencias a `.claude/fase-1-desarrollo-local`, 15 a `.claude/decisions`, 27 a `SPECS.md`), rompe `run_review.sh` y rompe `git blame`. OpenSpec no exige migrar la historia |
 | ¿Dónde quedan los datos del baseline? | Resultados y manifiesto **en git** (`baselines/<tag>/`); zips y CSV en un **tarball fuera del repo** | `data/*`, `storage/` y los CSV de Barchart están gitignoreados por diseño (la licencia de Barchart no permite versionarlos). El manifiesto permite verificar el snapshot y el tarball permite restaurarlo |
 
 ### Secuencia del ciclo (se copia a PLAN §7 en T3)
@@ -110,6 +111,38 @@ Estado verificado el 2026-09-23:
 
 ---
 
+## Disposición de la documentación (vale desde este ciclo; T7 la copia a CLAUDE.md)
+
+Principio: **casi nada se mueve.** Solo cambia de lugar lo que choca con OpenSpec (`AGENTS.md`). Lo demás o sigue
+activo en su sitio o queda congelado como historia.
+
+| Ubicación | Qué contiene | Decisión | Por qué |
+|---|---|---|---|
+| `AGENTS.md` (raíz) | Prompt del revisor Codex, de solo lectura | **Se mueve** a `docs/review/codex-review-prompt.md` (T6) | Codex y otros agentes leen solos el `AGENTS.md` de la raíz, y su "NUNCA modifiques archivos" choca con `/opsx:apply` |
+| `PLAN.md` | Índice operativo + §1–§6 | Se queda | Fuente de verdad. Los contratos de §5 se migran a `openspec/specs/<capability>` **la primera vez que un change los toca**, y §5 queda con un link (nunca dos fuentes) |
+| `SPECS.md` | Producto: por qué, entidades, criterios de cierre | Se queda; no se migra entero | Es el "por qué". El "qué hace" pasa a `openspec/specs` capability por capability |
+| `CLAUDE.md`, `README.md` | Convenciones; runbook | Se quedan | CLAUDE.md suma la sección OpenSpec (T7); el README cambia en la Etapa 13 |
+| `.claude/decisions/` | ADR-001…005 | Se queda; ADR-006 (E14) y la enmienda a ADR-005 (E15) se escriben aquí | Una decisión que cruza changes sobrevive a un `design.md`; convención del 2026-06-14 |
+| `.claude/fase-1-desarrollo-local/` | Specs y bitácoras E0–E12, roadmaps | Se queda y **se congela al cerrar la Etapa 12** | Es historia, sin formato OpenSpec. Desde la Etapa 13 no se crean más `etapa-NN.md` |
+| `docs/conceptos/`, `docs/research/` | Explicaciones y research | Se quedan | OpenSpec no cubre documentación explicativa |
+| `docs/ROADMAP.md`, `docs/DEVLOG.md` | Fases y diario | Se quedan | Se ponen al día al cerrar la Etapa 11 (una entrada por etapa, con link al change archivado) |
+| `revisiones/` | Informes y logs de Codex (17 MB) | Se queda | La referencian la triage y PLAN 9B |
+| `scripts/poc/` | Spec y bitácora del POC Finnhub | Se queda | Diferido (roadmap §6) |
+
+**Equivalencias desde la Etapa 13:**
+- `etapa-NN.md` → `proposal.md` + `tasks.md`.
+- `etapa-NN-decisiones-y-pendientes.md` se divide en `design.md` (decisiones D-n, preguntas abiertas) y `bitacora.md` **dentro del change** (evidencia de ejecución y checkpoints).
+- Todo se archiva junto en `openspec/changes/archive/AAAA-MM-DD-<id>/`. Probado el 2026-09-23 en un repo temporal: un archivo extra en el change pasa `validate --strict` y se archiva con él.
+
+**Capabilities previstas** (se crean a medida que llegan los changes):
+- E13: `data-coverage`, `scan-output` (envelope y ScanResult, desde PLAN §5)
+- 5B: `sma-accuracy`
+- E11: `backtest-range` (+ MODIFIED sobre `scan-output`)
+- E14: `scan-scope`
+- E15: `strategy-filters`
+
+---
+
 ## Tareas
 
 ### T1 — Verificar la suite y el entorno (Etapa 0 real)
@@ -184,16 +217,32 @@ Correr `openspec init` en la raíz eligiendo **únicamente** Claude Code. Antes 
 
 **Notas:** en `openspec/config.yaml`, el contexto del proyecto apunta a CLAUDE.md, PLAN.md y SPECS.md en vez de duplicar su contenido.
 
+**Ejecución real (2026-09-23; detalle en la bitácora):**
+- Perfil global `custom` = core + **`verify`**: `core` no trae `verify`, y de él dependen G5 y T8.
+- `delivery: commands`: solo los 7 comandos `.claude/commands/opsx/*`, sin skills. OpenSpec actúa solo cuando se lo invoca. Esos archivos los genera `openspec update` y **no se editan a mano**.
+- `config.yaml` escrito con `context` (idioma es, con encabezados y SHALL/MUST en inglés), `rules` para los 4 artefactos y `operations.apply/archive.guidance`. Verificado con `openspec instructions`: se inyectan context, las 4 reglas y las dos guías.
+- **Trampa de YAML encontrada:** un ítem con `": "` sin comillas se parsea como mapa, y OpenSpec **descarta sin fallar todas las reglas** de ese artefacto (avisa "must be an array of strings, ignoring"). Solución: entrecomillar. Para verificar tras cualquier edición: `openspec instructions <artefacto> --change <id>` no debe decir "ignoring".
+
 ### T6 — Retirar el `AGENTS.md` de solo lectura (H10)
 
 1. `git mv AGENTS.md docs/review/codex-review-prompt.md`.
 2. En [run_review.sh:47](../../scripts/run_review.sh#L47), cambiar "los criterios de AGENTS.md" por la ruta nueva, **explícita**. Codex ya no la encontrará sola: solo lee `AGENTS.md` de la raíz. El modo de solo lectura lo sigue garantizando `--sandbox read-only` (L55), no el texto del prompt.
 3. Corregir la ruta en la línea de comentario (L39).
+4. **Ampliación aprobada (2026-09-23): `CHANGE=<id>`.** `run_review.sh` acepta la variable de entorno `CHANGE`. Con ella, la revisión toma como alcance `openspec/changes/<id>/` (o `openspec/changes/archive/*-<id>/` si ya está archivado), en lugar de `etapa-NN.md`. Sin `CHANGE`, el comportamiento actual no cambia.
+5. Actualizar la mención de `AGENTS.md` en [docs/conceptos/code-review-codex-vs-anthropic.md](../../docs/conceptos/code-review-codex-vs-anthropic.md) a la ruta nueva.
+
+**Por qué la ampliación de `CHANGE=<id>`:**
+- Hoy `run_review.sh` define el alcance buscando `.claude/fase-1-desarrollo-local/etapa-NN.md` (L35). Si no lo encuentra, cae a "la sección de la Etapa N en PLAN.md" (L40-43).
+- Desde la Etapa 13 no habrá `etapa-NN.md` (ver *Disposición de la documentación*). Sin la ampliación, toda revisión de Codex de la 13 en adelante caería en silencio a PLAN.md, que solo tiene un resumen de los "Done when". Perdería `proposal.md`, `design.md`, `tasks.md` y los escenarios de `specs/`, que es justo lo que la revisión debe contrastar con el código.
+- Se hace en T6 porque T6 ya abre `run_review.sh` para cambiar la ruta del prompt: un solo cambio coherente al script, en lugar de dos.
+- Es aditivo: las revisiones de etapas históricas (`bash scripts/run_review.sh 5 8`) siguen funcionando igual.
 
 **Criterio de aceptación:**
 - `test ! -f AGENTS.md`, o bien, si T5 lo creó, que no contenga "NUNCA modifiques".
 - `grep -n "AGENTS.md" scripts/*.sh` = 0 resultados.
 - `bash -n scripts/run_review.sh` OK.
+- Sin ejecutar Codex (tiene costo): `CHANGE=<id>` resuelve el alcance a `openspec/changes/<id>/` cuando existe y al directorio archivado cuando no. Se verifica con un modo de prueba que imprime el `ref` sin llamar a `codex` (p. ej. `DRY_RUN=1`) contra el change de T8, activo y después archivado.
+- Sin `CHANGE`, `DRY_RUN=1 bash scripts/run_review.sh 5` imprime el mismo `ref` que hoy (`etapa-05.md`).
 
 **Notas:** las menciones dentro de `revisiones/2026*/…-log.md` son históricas y no se tocan.
 
@@ -204,6 +253,13 @@ Añadir una sección "OpenSpec y PLAN.md" con:
 - **Equivalencias:** etapa ⇔ change; "Done when" ⇔ escenarios + gates; archive ⇔ cierre.
 - **Gates G0–G6** (resumen y link al roadmap §0.2).
 - **Prohibiciones:** `--no-validate`; `--skip-specs` sin metadata; `sync` sin G3/G4/G5; archive con CRITICAL abiertos.
+- **Reglas de archive (hallazgos de T5):**
+  - `/opsx:archive` mueve la carpeta con `mv` y **no valida**, así que siempre va precedido de `openspec validate <id> --strict`.
+  - Nunca se confirma un archive con tareas o artefactos incompletos.
+  - Nunca se elige "Archive without syncing" si hay delta specs.
+  - Tras archivar una capability nueva, se escribe su Purpose (≥50 caracteres), porque `validate --all --strict` falla con `TBD` o con texto corto.
+- **`config.yaml`:** es consejo, no obliga. Toda regla que viva ahí debe estar también en CLAUDE.md. Tras editarlo, `openspec instructions <artefacto>` no debe avisar "ignoring".
+- **Disposición de la documentación:** la tabla de esta spec (dónde va cada tipo de documento desde la Etapa 13).
 - **Convención de commits:** `[Etapa N][<change-id>]` y `[config]`.
 - **Modelo de ramas:** resumen de las 6 reglas de *Manejo de ramas*, en particular la corrida semanal desde `main` con reseed.
 - Los comandos `openspec` en la sección Comandos.
@@ -227,6 +283,13 @@ El change agrega un requisito trivial, p. ej. "el repo declara su flujo en CLAUD
 - Después, un commit aparte retira el requisito trivial y `openspec validate --all --strict` sigue en exit 0.
 
 **Notas:** si `archive` después de `sync` duplica deltas o exige `--skip-specs`, **se detiene la etapa** y se propone el ajuste de §0.4 y de CLAUDE.md antes de seguir (paso 6 del flujo).
+
+**Riesgo reducido por la prueba de T5 (2026-09-23):** en un repo temporal, la CLI `openspec archive` sobre un requisito ya sincronizado respondió "Specs already in sync; no files changed". **No duplica** requisitos ADDED. T8 se mantiene porque lo que falta probar es el flujo **con los comandos `/opsx:*` dentro de este repo**:
+- el sync lo hace el agente, no la CLI;
+- `/opsx:archive` archiva con `mv`, así que el paso 4 queda: `openspec validate chore-openspec-smoke --strict` → `/opsx:archive`;
+- la regla del Purpose, al retirar el requisito trivial.
+
+T8 también sirve de prueba para `CHANGE=<id>` de T6.
 
 ### T9 — Baseline long para G4 (roadmap §0.5)
 
@@ -306,9 +369,9 @@ Añadir una línea en `docs/ROADMAP.md`, bajo los candidatos de Fase 2, con las 
 - [x] T1: `run_tests.sh` verde; cifra registrada en PLAN; `docker run hello-world` OK *(2026-09-23: **304 passed**, 0 failed, 0 skipped, 13 warnings; hello-world OK. El registro en PLAN se hace en T3)*
 - [x] T2: config sembrada == config versionada (hashes iguales); short `false` en `storage/`; sin commit *(2026-09-23: sha256 `1be6104e…` en ambos; universos del 09-19 conservados)*
 - [x] T3: PLAN §7 con 0/5B/6B/9A/9B/10/11/12/13/14/15 en su estado real y la tabla de secuencia; CLAUDE.md, paso 1, actualizado; nota de supersesión en `etapa-11-…md` *(2026-09-23: 8 entradas nuevas + tabla de 7 filas; estados 0/6B `completada`, 5B/9A `pausada`; link roto de etapa-04 corregido)*
-- [ ] T4: `node` y `openspec` instalados; versiones anotadas y compatibles con `engines`
-- [ ] T5: `openspec/` inicializado solo para Claude Code; diff revisado; `openspec validate --all --strict` exit 0
-- [ ] T6: sin `AGENTS.md` de solo lectura en la raíz; `run_review.sh` apunta a `docs/review/codex-review-prompt.md`; `bash -n` OK
+- [x] T4: `node` y `openspec` instalados; versiones anotadas y compatibles con `engines` *(2026-09-23: Node v26.9.0 ≥ 20.19.0; openspec 1.13.1, la última publicada)*
+- [x] T5: `openspec/` inicializado solo para Claude Code; diff revisado; `openspec validate --all --strict` exit 0 *(2026-09-23: perfil custom core+verify, delivery commands, 7 comandos, 0 archivos versionados modificados; `config.yaml` verificado con `openspec instructions`)*
+- [ ] T6: sin `AGENTS.md` de solo lectura en la raíz; `run_review.sh` apunta a `docs/review/codex-review-prompt.md` y acepta `CHANGE=<id>` (resuelve activo y archivado, verificado en modo de prueba); `bash -n` OK
 - [ ] T7: CLAUDE.md con la sección de OpenSpec y una única cadena de precedencia
 - [ ] T8: `chore-openspec-smoke` recorrió propose→validate→apply→verify→sync→archive con exit 0, sin flags prohibidos y sin duplicar requisitos; retirado después
 - [ ] T9: `baselines/scan-v2026.09.23-baseline/` versionado; `shasum -c` OK; tarball fuera del repo; 0 tickers fuera de `swing_advances`; tag creado

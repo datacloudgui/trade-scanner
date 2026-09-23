@@ -34,6 +34,50 @@ Spec: [etapa-12.md](etapa-12.md) · Rama: `feature/etapa-12-bootstrap-openspec`
 - **Hallazgo lateral corregido:** el link a `etapa-04-decisiones-y-pendientes-md` (sin punto) estaba roto desde la Etapa 4.
 - **Verificación:** las 8 etapas aparecen 1 vez cada una en `grep "^## Etapa N —"`; la tabla tiene 7 filas; todos los links locales de PLAN.md resuelven.
 
+## T4 — OpenSpec instalado (2026-09-23, ejecutado a mano por el usuario)
+
+- Node **v26.9.0** (Homebrew), npm 11.19.1. `npm view @fission-ai/openspec engines` → `node >=20.19.0`: cumple.
+- `@fission-ai/openspec` **1.13.1** global (`/opt/homebrew/bin/openspec`), la última versión publicada.
+
+## T5 — `openspec init` + perfil + `config.yaml` (2026-09-23)
+
+**Lo que generó `init`** (ejecutado a mano, solo Claude Code):
+- `openspec/{config.yaml, specs/.gitkeep, changes/archive/.gitkeep}`, más skills y comandos en `.claude/`.
+- `git diff` vacío: **no modificó** `CLAUDE.md` ni `AGENTS.md`, y no creó `.cursor` ni `.agents`.
+
+**Primer hallazgo: el perfil `core` no incluye `verify`.** Solo trae propose, explore, apply, update, sync y archive. Sin `verify` no hay G5 ni T8. Acción del usuario:
+- `openspec config profile` → `custom` = core + verify, con `delivery: commands`.
+- `openspec update` → quedan **7 comandos** en `.claude/commands/opsx/` y las skills se borran. Se eliminó el directorio vacío `.claude/skills/`.
+- Es configuración **global** de la máquina (`~/.config/openspec/config.json`).
+- La consecuencia de `delivery: commands` es positiva: OpenSpec solo actúa cuando se invoca un `/opsx:*`; las skills se activaban solas.
+
+**Hallazgos en el texto de los comandos generados:**
+- `/opsx:archive` archiva con **`mv` directo**, sin `openspec validate`. Con tareas o artefactos incompletos solo pide confirmación, y ofrece "Archive without syncing". → G6 del roadmap corregido; las reglas entran en `config.yaml` y en CLAUDE.md (T7).
+- `/opsx:verify` marca como CRITICAL las tareas incompletas y los requisitos no encontrados, y como WARNING los escenarios sin test. **No corre tests**: G2 sigue siendo `run_tests.sh`.
+
+**Pruebas en un repo temporal** (scratchpad, con OpenSpec 1.13.1 y `OPENSPEC_TELEMETRY=0`):
+
+| Prueba | Resultado |
+|---|---|
+| Archivo extra `bitacora.md` en el change | `validate --strict` OK y se archiva con el change → las bitácoras viven dentro del change desde la Etapa 13 |
+| `openspec archive` sobre un requisito ya sincronizado | "Specs already in sync; no files changed" → **no duplica** los ADDED |
+| Capability nueva archivada | Queda con `Purpose: TBD`; `validate --all --strict` → **exit 1**; también falla con un Purpose de menos de 50 caracteres; con Purpose adecuado → exit 0 |
+| `init --language es` | Solo agrega al `context`: artefactos en español, con encabezados y SHALL/MUST en inglés |
+| `operations` en `config.yaml` | Solo existen `apply` y `archive`, y son consejo, no obligan |
+
+**`config.yaml`:**
+- Contenido: `context` (idioma, scan-only, precedencia, dónde están las reglas y los gates, tests solo en Docker), `rules` para proposal/design/specs/tasks y `operations.apply/archive.guidance`.
+- **Trampa de YAML:** el ítem `- Incluir "Rollback": R-cfg…` se parseaba como mapa. OpenSpec avisó "Rules for 'proposal' must be an array of strings, **ignoring**" y descartó **todas** las reglas de proposal sin fallar. Se corrigió entrecomillando el ítem.
+- Verificado con `openspec instructions` en el repo temporal (con este mismo archivo): se inyectan el context, las 4 reglas (sin "ignoring") y las guías de apply y archive.
+- Repo: `openspec validate --all --strict` → exit 0; `openspec doctor` → exit 0.
+
+**Telemetría:** activa (solo nombres de comandos y versión, según la documentación). Queda como decisión del usuario apagarla con `openspec config set telemetry.enabled false`.
+
+**Decisiones tomadas en T5 que afectan tareas posteriores:**
+- **Disposición de la documentación:** solo se mueve `AGENTS.md`; el resto se queda o se congela. Tabla en la spec, sección *Disposición de la documentación*.
+- **T6 ampliado** (aprobado por el usuario): `run_review.sh` acepta `CHANGE=<id>`. El porqué está en la spec, T6: sin esto, las revisiones de la Etapa 13 en adelante caerían en silencio a PLAN.md.
+- **T8 con menos riesgo:** la duplicación ya quedó descartada para la CLI; falta probar el flujo con `/opsx:*` en el repo.
+
 ## Pendientes
 
-- T4 en adelante. **T4 no se inicia hasta que el usuario lo indique.**
+- T6 en adelante. **T6 no se inicia hasta que el usuario lo indique.**
