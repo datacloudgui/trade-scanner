@@ -75,15 +75,15 @@ Spec: [etapa-12.md](etapa-12.md) · Rama: `feature/etapa-12-bootstrap-openspec`
 
 **Decisiones tomadas en T5 que afectan tareas posteriores:**
 - **Disposición de la documentación:** solo se mueve `AGENTS.md`; el resto se queda o se congela. Tabla en la spec, sección *Disposición de la documentación*.
-- **T6 ampliado** (aprobado por el usuario): `run_review.sh` acepta `CHANGE=<id>`. El porqué está en la spec, T6: sin esto, las revisiones de la Etapa 13 en adelante caerían en silencio a PLAN.md.
+- ~~**T6 ampliado** (aprobado por el usuario): `run_review.sh` acepta `CHANGE=<id>`. El porqué está en la spec, T6: sin esto, las revisiones de la Etapa 13 en adelante caerían en silencio a PLAN.md.~~ *(superado: ver "Decisión: Codex no disponible"; `CHANGE=<id>` y `DRY_RUN` diferidos al roadmap §4)*
 - **T8 con menos riesgo:** la duplicación ya quedó descartada para la CLI; falta probar el flujo con `/opsx:*` en el repo.
 
 ## Revisión de alineación T6–T11 (2026-09-23, antes de iniciar T6)
 
 Se contrastó la spec contra el repo y contra lo decidido o hallado en T1–T5. Hubo 8 correcciones:
 
-1. **T6 no se podía verificar tal como estaba escrito:** pedía `DRY_RUN=1`, pero `run_review.sh` no tiene ese modo. Se agregó como paso.
-2. **T6 dependía de T8:** verificaba `CHANGE=<id>` "contra el change de T8". Ahora usa dos directorios temporales (uno activo y uno archivado). También se definió la semántica de `CHANGE` (va con un solo número de etapa) y un error explícito si el id no existe.
+1. ~~**T6 no se podía verificar tal como estaba escrito:** pedía `DRY_RUN=1`, pero `run_review.sh` no tiene ese modo. Se agregó como paso.~~ *(superado: ver "Decisión: Codex no disponible"; `CHANGE=<id>` y `DRY_RUN` diferidos al roadmap §4)*
+2. ~~**T6 dependía de T8:** verificaba `CHANGE=<id>` "contra el change de T8". Ahora usa dos directorios temporales (uno activo y uno archivado). También se definió la semántica de `CHANGE` (va con un solo número de etapa) y un error explícito si el id no existe.~~ *(superado: ver "Decisión: Codex no disponible"; `CHANGE=<id>` y `DRY_RUN` diferidos al roadmap §4)*
 3. **T6: el prompt movido contradecía el flujo nuevo.** Decía `PLAN > SPECS > CLAUDE` (L23), "etapa en progreso/pendiente" (L33) y "Stooq; Alpaca diferido" (L79). Se alinea sin reescribirlo. Lo mismo para L48 de `run_review.sh`.
 4. **T7:** decía "5 reglas de §0.4", pero son 4. Además faltaba tocar secciones que ya existen en CLAUDE.md (*Documentos y precedencia*, pasos 3–5 del *Flujo*, *Gotchas*), no solo agregar una sección nueva.
 5. **T8:** la lista de pasos seguía mostrando `openspec archive --yes` en lugar de `validate` → `/opsx:archive`. Decía "exit 0" para comandos `/opsx:*`, que no tienen código de salida. No verificaba que las reglas de `config.yaml` funcionaran en el repo real. El retiro de la capability no estaba definido: ahora es manual y documentado (un change REMOVED exigiría `retire_capabilities`).
@@ -135,6 +135,49 @@ Además: la Fase A se movió al principio del Done when; la lista de commits ref
 - `scripts/codex_usage.sh` y `revisiones/` no se tocaron.
 - `CHANGE=<id>` y `DRY_RUN` siguen diferidos (roadmap §4).
 
+## T7 — CLAUDE.md: convivencia con OpenSpec (2026-09-23)
+
+**Secciones existentes que se tocaron:**
+- *Documentos y precedencia*:
+  - la lista pasa a 6 fuentes (PLAN, change activo, `openspec/specs`, SPECS, CLAUDE, `/opsx:*`);
+  - **una sola cadena**: `PLAN.md` > change activo > `openspec/specs` > `SPECS.md` > `CLAUDE.md` > `/opsx:*`, con la excepción de §0.4 (reglas duras y flujo solo cambian con ADR + edición de CLAUDE.md).
+  - Se conservó el nombre de la sección, porque el prompt de revisión (T6) la cita.
+- *Flujo de trabajo*:
+  - el paso 1 no cambia (PLAN §7 L169 lo cita);
+  - paso 3: rama desde `develop`; Estado solo en PLAN.md; progreso por checkbox (etapa sin change) o por `tasks.md` + G2 (etapa con change). El criterio es la columna *Forma* de la tabla del ciclo, no el número: 5B y 11 son < 12 pero serán changes;
+  - paso 4: suma G0–G5;
+  - paso 5: cierre ordenado (sync → Done when → validate → `/opsx:archive` → Purpose → validate --all → commit → merge `--no-ff` → ff de `main` + tag → push → borrar rama);
+  - paso 6: "o al change".
+- *Comandos*: bloque `openspec` (validate, instructions, update), `run_review.sh` marcado OPCIONAL, lista de `/opsx:*`, revisión por defecto `/opsx:verify` + `/code-review` y la regla de no editar `.claude/commands/opsx/` a mano.
+- *Convenciones*: la línea de commits remite a la regla 4 (`[Etapa N]`, `[Etapa N][<change-id>]`, `[config]`).
+- *Gotchas*: subsección "Descubiertos en Etapa 12": archive con `mv`, `Purpose: TBD`, YAML "ignoring", perfil `core` sin `verify` y `/opsx:verify` sin tests.
+- *Definición de "verificado"*: rige igual para cada `[x]` de `tasks.md`.
+
+**Sección nueva "OpenSpec y PLAN.md":**
+- reglas de convivencia §0.4 (1 precedencia → remite a la cadena única; 2 equivalencias; 3 prohibiciones ampliadas en T5; 4 commits);
+- tabla de gates G0–G6 + G-data;
+- artefactos de un change, que replican **todas** las reglas de `config.yaml` (proposal/design/specs/tasks y guía de apply);
+- reglas de archive;
+- `config.yaml` como consejo;
+- tabla de disposición de la documentación;
+- ramas y commits: modelo de 5 ramas, 6 reglas y la vía ligera `[config]`.
+
+**Evidencia (criterios de aceptación):**
+
+| Criterio | Salida |
+|---|---|
+| `grep -n "PLAN.md > SPECS.md" CLAUDE.md` | 0 resultados |
+| Cadena única | 1 sola línea con `> change activo` (L14) |
+| Sección y subsecciones | `## OpenSpec y PLAN.md` (L35) con *Reglas de convivencia*, *Gates*, *Artefactos de un change*, *Reglas de archive*, *`openspec/config.yaml`*, *Disposición de la documentación*, *Ramas y commits* |
+| 4 reglas de §0.4 | L41 Precedencia, L42 Equivalencias, L47 Prohibido, L55 Commits |
+| 7 prohibiciones | `--no-validate`, `--skip-specs`, sync sin G3/G4/G5, CRITICAL abiertos, archive sin `validate --strict`, tareas/artefactos incompletos, "Archive without syncing": todas presentes |
+| Modelo de ramas / disposición / corrida semanal | 5 filas de ramas; "se congela al cerrar la Etapa 12" = 1; reseed antes de `lean backtest` = 1 |
+| Pasos 3–5 del flujo | `tasks.md`, archive, `--no-ff` y `--ff-only` presentes |
+| `bash scripts/run_tests.sh` | **exit 0, 304 passed**, 13 warnings (sin cambios de código en T6/T7) |
+| `openspec validate --all --strict` | exit 0 ("No items found to validate") |
+
+**Tachado en esta bitácora** (pedido del usuario): la línea "T6 ampliado" de T5 y los puntos 1–2 de la *Revisión de alineación*, que describían `CHANGE=<id>`/`DRY_RUN` en T6. Quedaron superados por la decisión "Codex no disponible".
+
 ## Pendientes
 
-- T7 en adelante. **T7 no se inicia hasta que el usuario lo indique.**
+- T8 en adelante. **T8 no se inicia hasta que el usuario lo indique.**

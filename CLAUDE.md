@@ -4,18 +4,132 @@ Screener multi-estrategia sobre el motor LEAN (QuantConnect, Python 3.11). Carga
 
 ## Documentos y precedencia
 
-1. `PLAN.md` — plan de trabajo por etapas con estado y checkboxes. **Fuente de verdad operativa.**
-2. `SPECS.md` — contexto de producto, entidades, criterios de aceptación.
-3. Ante conflicto: PLAN.md > SPECS.md > este archivo.
+1. `PLAN.md` — índice operativo: etapas, **Estado**, "Done when" y link al change. **Fuente de verdad operativa.** El Estado de una etapa se cambia solo aquí.
+2. **Change activo** — `openspec/changes/<id>/` (`proposal.md`, `design.md`, `tasks.md`, `specs/**`, `bitacora.md`). Desde la Etapa 13, cada etapa se especifica como un change.
+3. `openspec/specs/` — comportamiento aceptado, por capability (bootstrap perezoso: cada change agrega la que toca).
+4. `SPECS.md` — contexto de producto, entidades, criterios de aceptación (el "por qué").
+5. `CLAUDE.md` — este archivo: flujo, reglas duras y convenciones.
+6. Comandos `/opsx:*` generados en `.claude/commands/opsx/`.
+
+**Cadena de precedencia** (ante conflicto gana el de la izquierda): `PLAN.md` > change activo > `openspec/specs` > `SPECS.md` > `CLAUDE.md` > `/opsx:*`.
+
+**Excepción:** ningún change ni documento anula las *Reglas duras* ni el *Flujo de trabajo* de este archivo; solo un ADR aprobado más la edición explícita de CLAUDE.md. Si un `/opsx:*` sugiere algo contrario (archivar con tareas abiertas, `--no-validate`, `sync` antes de G4), gana CLAUDE.md.
 
 ## Flujo de trabajo (spec-driven, obligatorio)
 
 1. Lee `PLAN.md` §7, tabla **Secuencia del ciclo**: la etapa activa es la **primera fila cuyo Estado no es `completada`** (`pausada` = abierta, con su trabajo restante asignado a una fila posterior). El orden del documento es histórico, no de ejecución.
 2. Trabaja SOLO esa etapa. No mezcles alcance de etapas futuras.
-3. Al empezar: cambia su Estado a `en progreso`. Al cumplir cada criterio: marca su checkbox `- [x]`.
-4. Una etapa se cierra solo cuando TODOS sus "Done when" están verificados (no asumidos: ejecutados).
-5. Cierre: Estado a `completada`, commit, resumen breve de lo hecho y qué sigue.
-6. Si algo del plan es inviable o ambiguo: detente y pregunta ANTES de desviarte. Si cambia el diseño, propón la edición a PLAN.md y espera aprobación.
+3. Al empezar: crea la rama de la etapa desde `develop` (ver *Ramas y commits*) y cambia su Estado a `en progreso` **en PLAN.md** (el Estado vive solo ahí). Progreso:
+   - etapa sin change (columna *Forma* de la tabla; en este ciclo, la 12 y la 9): al cumplir cada criterio, marca su checkbox `- [x]` en PLAN.md y, si existe, en `etapa-NN.md`;
+   - etapa con change (13, 5B, 11, 14, 15): el progreso granular va en `tasks.md` (cada `[x]` exige G2); los "Done when" de PLAN.md se marcan con evidencia citada en el cierre (G6).
+4. Una etapa se cierra solo cuando TODOS sus "Done when" están verificados (no asumidos: ejecutados) y, si es un change, pasó sus gates G0–G5.
+5. Cierre, en este orden:
+   1. Si es un change: `/opsx:sync` (tras G3/G4/G5) → "Done when" de PLAN con evidencia → `openspec validate <id> --strict` → `/opsx:archive` → Purpose de cada capability nueva → `openspec validate --all --strict` exit 0.
+   2. Estado a `completada` en PLAN.md → commit de cierre en la rama → push.
+   3. `git switch develop && git merge --no-ff <rama> -m "[Etapa NN] merge: <resumen>"`.
+   4. Promoción: `git switch main && git merge --ff-only develop` + `git tag -a scan/vYYYY.MM.DD-N`.
+   5. `git push origin develop main <tag>`; borrar la rama, local y remota.
+   6. Resumen breve de lo hecho y qué sigue.
+6. Si algo del plan es inviable o ambiguo: detente y pregunta ANTES de desviarte. Si cambia el diseño, propón la edición a PLAN.md (o al change) y espera aprobación.
+
+## OpenSpec y PLAN.md (desde el ciclo 2026-09)
+
+OpenSpec va **anidado** en las etapas de PLAN.md: PLAN es el índice; el change, el detalle. Motivos y detalle: [roadmap §0](.claude/fase-1-desarrollo-local/roadmap-definitivo-2026-09.md) y [etapa-12.md](.claude/fase-1-desarrollo-local/etapa-12.md).
+
+### Reglas de convivencia (roadmap §0.4)
+
+1. **Precedencia:** la cadena de *Documentos y precedencia*, con su excepción. No hay otra.
+2. **Equivalencias:**
+   - etapa `en progreso` ⇔ change activo; "Done when" ⇔ escenarios + gates; `archive` ⇔ cierre de etapa;
+   - `etapa-NN.md` ⇔ `proposal.md` + `tasks.md`;
+   - `etapa-NN-decisiones-y-pendientes.md` ⇔ `design.md` (decisiones D-n, preguntas abiertas) + `bitacora.md` dentro del change (evidencia y checkpoints);
+   - las tareas de proceso (resincronizar PLAN, merges, docs) quedan en PLAN.md, sin change.
+3. **Prohibido:**
+   - `--no-validate`;
+   - `--skip-specs` sin `skip_specs: true` en la metadata del change;
+   - `/opsx:sync` sin G3, G4 (si aplica) y G5;
+   - archivar con CRITICAL abiertos de `/opsx:verify`;
+   - `/opsx:archive` sin `openspec validate <id> --strict` previo en exit 0;
+   - confirmar un archive con tareas o artefactos incompletos;
+   - elegir "Archive without syncing" si el change tiene delta specs.
+4. **Commits:** `[Etapa N][<change-id>] …` en una etapa con change; `[Etapa N] …` en una sin change; `[config] …` en la vía ligera.
+
+### Gates (resumen; definición completa en [roadmap §0.2](.claude/fase-1-desarrollo-local/roadmap-definitivo-2026-09.md))
+
+| Gate | Cuándo | Evidencia | Bloquea |
+|---|---|---|---|
+| **G0** | Cierre de `/opsx:propose` | `openspec validate <id> --strict` exit 0 | `apply` |
+| **G1** | Tras G0 | Aprobación humana de `proposal.md` (paso 6 del flujo) | `apply` |
+| **G2** | Tras cada tarea | `bash scripts/run_tests.sh` verde | El `[x]` en `tasks.md` |
+| **G3** | Antes de `sync` | `lean backtest "trade-scanner"` en **dev**, exit 0 | `sync` |
+| **G4** | Antes de `sync`, si el change toca el scan o la salida | Backtest **prod** con ventana fija y `storage/results/` vaciado; diff contra `baselines/<tag>/` == diferencias declaradas en `proposal.md`. dev no sirve (su override de universo oculta #12) | `sync` |
+| **G-data** | Antes de G4 (desde la Etapa 13) | Preflight de cobertura de datos exit 0 | G4 |
+| **G5** | Antes de `sync` | `/opsx:verify` sin CRITICAL; cada WARNING corregido o justificado en `design.md` | `sync` y checkboxes de PLAN |
+| **G6** | Cierre | Paso 5 del flujo | — |
+
+### Artefactos de un change
+
+Espejo obligatorio de las reglas de `openspec/config.yaml`:
+- Idioma: español; encabezados estructurales de OpenSpec y SHALL/MUST en inglés.
+- `proposal.md`:
+  - Etapa de PLAN.md y rama `feature/etapa-NN-<change-id>`;
+  - sección "Diferencias esperadas en la watchlist" (insumo de G4; "ninguna" si no toca el scan);
+  - sección "Rollback": R-cfg (`enabled: false` + reseed) o R-git (revert del merge o checkout del tag), y por qué basta ([roadmap §0.3](.claude/fase-1-desarrollo-local/roadmap-definitivo-2026-09.md)).
+- `design.md`: decisiones D-1, D-2…; las que cruzan changes van a un ADR en `.claude/decisions/` y se enlazan.
+- `specs/**`: cada Scenario es verificable por un test en Docker o por evidencia de backtest citada.
+- `tasks.md`: cada tarea con criterio de aceptación ejecutable; tareas explícitas de gate (G2, G3 y G4 si toca el scan) y una final de evidencia en `bitacora.md`.
+- Durante `/opsx:apply`: ningún `[x]` sin G2; no se toca el Estado en PLAN.md; la evidencia (comandos, hashes, conteos) va en `bitacora.md`.
+
+### Reglas de archive (hallazgos de Etapa 12 T5)
+
+- `/opsx:archive` mueve la carpeta con `mv` y **no valida** (la CLI `openspec archive` sí). Por eso siempre va precedido de `openspec validate <id> --strict`.
+- Con tareas o artefactos incompletos, `/opsx:archive` solo pide confirmación: **nunca se confirma**; se detiene y se reporta.
+- Nunca se elige "Archive without syncing" si hay delta specs.
+- Tras archivar una capability nueva se escribe su `Purpose` (≥50 caracteres): `openspec validate --all --strict` falla con `TBD` o con texto corto.
+
+### `openspec/config.yaml`
+
+- Inyecta contexto y reglas en los artefactos, pero **es consejo, no obliga**. Toda regla que viva ahí debe estar también en CLAUDE.md (hoy: *Artefactos de un change* y *Reglas de archive*).
+- Tras editarlo: `openspec instructions <artefacto> --change <id>` no debe avisar "ignoring".
+- Los archivos de `.claude/commands/opsx/` los genera `openspec update`: **no se editan a mano**.
+
+### Disposición de la documentación
+
+Casi nada se mueve: lo existente sigue activo en su sitio o queda congelado como historia.
+
+| Ubicación | Qué contiene | Desde la Etapa 13 |
+|---|---|---|
+| `PLAN.md` | Índice operativo + §1–§6 | Se queda. Los contratos de §5 migran a `openspec/specs/<capability>` la primera vez que un change los toca; §5 queda con un link (nunca dos fuentes) |
+| `SPECS.md` | Producto: por qué, entidades, criterios | Se queda, sin migrarse entero: el "qué hace" pasa a `openspec/specs` capability por capability |
+| `CLAUDE.md`, `README.md` | Convenciones; runbook | Se quedan |
+| `openspec/changes/<id>/` | `proposal`, `design`, `tasks`, `specs/**`, `bitacora.md` | Al archivar, todo junto a `openspec/changes/archive/AAAA-MM-DD-<id>/` |
+| `.claude/decisions/` | ADRs | Se queda: decisiones que cruzan changes (ADR-006 en la E14, enmienda a ADR-005 en la E15) |
+| `.claude/fase-1-desarrollo-local/` | Specs y bitácoras E0–E12, roadmaps | Historia; **se congela al cerrar la Etapa 12**: no se crean más `etapa-NN.md` |
+| `docs/conceptos/`, `docs/research/` | Explicaciones y research | Se quedan |
+| `docs/ROADMAP.md`, `docs/DEVLOG.md` | Fases y diario | Se quedan; una entrada por etapa con link al change archivado (se ponen al día al cerrar la Etapa 11) |
+| `docs/review/codex-review-prompt.md`, `revisiones/` | Prompt e informes de Codex | Opcionales; `revisiones/` solo crece si se reactiva Codex |
+| `scripts/poc/` | POC Finnhub | Diferido |
+
+### Ramas y commits
+
+| Rama | Rol | Cómo avanza |
+|---|---|---|
+| `main` | **Producción:** la versión con la que se corre la watchlist semanal real y se envía el correo | Solo fast-forward desde `develop` + tag anotado `scan/vYYYY.MM.DD-N`. Nunca recibe commits propios |
+| `develop` | **Integración:** solo etapas cerradas | Un merge `--no-ff` por etapa; `git revert -m 1 <merge>` la revierte entera (R-git) |
+| `feature/etapa-NN-<change-id>` | Una rama por etapa, creada desde `develop` | Commits de la etapa; push tras cada commit |
+| `config/<slug>` | Vía ligera `[config]` | Igual que una rama de etapa |
+| `hotfix/<slug>` | Rollback urgente de producción, solo si `develop` tiene trabajo sin promover | Sale de `main`; `main` avanza por fast-forward hasta el hotfix; después `main` se mergea en `develop` |
+
+1. **Una etapa, una rama.** Ninguna rama acumula varias etapas.
+2. **Cierre** = paso 5 del flujo. Toda etapa pasó sus gates antes de cerrarse, así que se promueve al cerrar: después de cada cierre, `main` == `develop`.
+3. **La corrida semanal real sale siempre de `main`, con reseed:** `git switch main && bash scripts/seed_object_store.sh` antes de `lean backtest`. `storage/` y `data/` están gitignoreados: `git switch` no los cambia y, sin reseed, la corrida usa la config de la última rama sembrada.
+   - Mientras la Etapa 11 no cierre, la edición semanal de `end_date` en `main.py` no se commitea: se corre y después `git restore trade-scanner/main.py`, antes de cambiar de rama.
+   - Las corridas de revisión de una etapa en curso se hacen en su rama y **no se publican** (no se ejecuta `notify_email.py`). Solo lo que sale de `main` llega al correo.
+4. **Push:** rama de etapa tras cada commit; `develop`, `main` y tags en cada cierre; tags siempre anotados (`-a`).
+5. **No se reescribe historia publicada:** nada de `rebase` ni `push --force` sobre `develop`, `main` o una rama ya pusheada.
+6. **Merges locales** (no hay `gh`). La revisión antes del merge es la de por defecto: `/opsx:verify` + `/code-review`.
+
+**Vía ligera `[config]`** (sin OpenSpec): ajustes que solo tocan `config/strategies.json` o `config/notifications.json` sin cambiar ningún requisito (umbrales, `top_n`, `filters` ya soportados, `enabled`). Flujo: rama `config/<slug>` → G3/G4 → commit `[config] …` → cierre como una etapa. Un cambio de config que modifica semántica (p. ej. el vocabulario de `filters`) no es vía ligera: es un change.
 
 ## Comandos
 
@@ -27,10 +141,22 @@ bash scripts/run_tests.sh                # pytest DENTRO de la imagen LEAN (úni
 bash scripts/seed_object_store.sh        # config/*.json (+ universes/*.csv) → storage/ (ObjectStore real)
 bash scripts/seed_sample_data.sh         # SPY sample data libre → data/equity/ (avanza el reloj del backtest)
 python scripts/explore_universe.py <csv> # perfilado del CSV de universo
+
+# OpenSpec (CLI 1.13.1; Node ≥ 20.19)
+openspec validate <id> --strict          # G0, y siempre antes de /opsx:archive
+openspec validate --all --strict         # tras archivar (con el Purpose escrito)
+openspec instructions <artefacto> --change <id>   # tras editar config.yaml: no debe decir "ignoring"
+openspec update                          # regenera .claude/commands/opsx/ (no se editan a mano)
+
+bash scripts/run_review.sh <N>           # OPCIONAL: requiere Codex CLI (no instalado desde 2026-09-23)
 ```
 
 Ejecuta todos los comandos `lean` desde la raíz del workspace (donde vive `lean.json`).
 Activa el virtualenv antes de cualquier comando lean: `source .venv/bin/activate`.
+
+Comandos de sesión de OpenSpec: `/opsx:explore`, `/opsx:propose`, `/opsx:apply`, `/opsx:verify` (G5), `/opsx:sync`, `/opsx:archive`, `/opsx:update`. Úsalos siempre dentro de las reglas de *OpenSpec y PLAN.md*.
+
+**Revisión por defecto:** `/opsx:verify` (G5) + `/code-review`. `run_review.sh` (Codex, prompt en `docs/review/codex-review-prompt.md`) es opcional: sin Codex sale con exit 1 sin crear nada, y todavía no soporta changes de OpenSpec (etapas ≥13).
 
 ## Arquitectura (resumen; detalle en PLAN.md §2–§4)
 
@@ -66,7 +192,7 @@ Restricciones entre capas — verifícalas en cada cambio:
 - Patrón `SymbolData` por símbolo; features como propiedades/métodos de lectura.
 - Type hints en todo `core/` y `strategies/`. Docstrings cortos: qué y por qué, no cómo.
 - Tests: pytest con `TradeBar`s sintéticos construidos a mano (valores de SMA verificables manualmente). Corren dentro de la imagen LEAN vía `scripts/run_tests.sh` — nunca asumas que pytest local fuera de Docker tiene `AlgorithmImports`.
-- Commits: uno por unidad coherente, mensaje imperativo, referencia a la etapa (`[Etapa 5] ...`).
+- Commits: uno por unidad coherente, mensaje imperativo, con el prefijo de la regla 4 de *Reglas de convivencia* (`[Etapa N] …`, `[Etapa N][<change-id>] …` o `[config] …`).
 
 ## Gotchas de LEAN (memorízalos)
 
@@ -107,8 +233,18 @@ Restricciones entre capas — verifícalas en cada cambio:
 - **Equivalencia exacta warmup/runtime verificada (T3.9).** El consolidator diario redondea `time` a 00:00: la barra construida desde minutos es idéntica a la diaria directa, y la cadena W/M hereda la identidad. No hay asimetría que compensar en `main.py`.
 - **`Symbol.create(..., EQUITY, ...)` fuera del engine lanza NullReference** (exige map file provider). En tests: `Symbol(SecurityIdentifier.generate_equity("SPY", Market.USA, False), "SPY")`. Para scripts directos en la imagen (no `python -m pytest`), añadir `/Lean/Launcher/bin/Debug` al `PYTHONPATH`.
 
+### Descubiertos en Etapa 12 (OpenSpec 1.13.1)
+
+- **`/opsx:archive` archiva con `mv` y no valida.** Solo la CLI `openspec archive` valida. Por eso existe la regla de `validate --strict` antes (ver *Reglas de archive*).
+- **Una capability nueva se archiva con `Purpose: TBD`**, y `openspec validate --all --strict` sale con exit 1 hasta que se escribe un Purpose de ≥50 caracteres.
+- **Trampa de YAML en `openspec/config.yaml`:** un ítem con `": "` sin comillas se parsea como mapa y OpenSpec **descarta sin fallar todas las reglas** de ese artefacto (solo avisa "must be an array of strings, ignoring"). Entrecomillar el ítem.
+- **El perfil `core` no incluye `verify`** (sin él no hay G5). La máquina usa el perfil global `custom` = core + verify con `delivery: commands` (`~/.config/openspec/config.json`). En otra máquina: `openspec config profile` + `openspec update`.
+- **`/opsx:verify` no corre tests:** G2 sigue siendo `bash scripts/run_tests.sh`.
+
 ## Definición de "verificado"
 
 Un checkbox de PLAN.md se marca solo si:
 1. `bash scripts/run_tests.sh` pasa, y
 2. cuando aplica, `lean backtest "trade-scanner"` corre sin errores y los logs/archivos demuestran el criterio (cita la evidencia en el resumen de cierre de etapa).
+
+En una etapa con change rige lo mismo para cada `[x]` de `tasks.md` (G2), y la evidencia se cita en `bitacora.md`.
