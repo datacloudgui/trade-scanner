@@ -1,6 +1,6 @@
 # Etapa 12 — Base estable + adopción de OpenSpec (bootstrap del ciclo 2026-09)
 
-**Estado:** pendiente
+**Estado:** en progreso (desde 2026-09-23; Fase A completada)
 **Depende de:** ninguna etapa de código. Entrada: [roadmap-definitivo-2026-09.md](roadmap-definitivo-2026-09.md) (U0), aprobado.
 **Rama:** `feature/etapa-12-bootstrap-openspec`, creada desde `develop` en la Fase A (ver *Manejo de ramas*)
 **Estimado:** 3–4 h (más la instalación de Node si hace falta)
@@ -128,6 +128,8 @@ es `storage/`: sigue sembrado con el short activo. Correr `bash scripts/seed_obj
 la config versionada ya tiene `false`.
 
 **No correr `lean backtest` antes de este paso.** T1 solo corre tests.
+
+**Nota (verificado 2026-09-23):** si no hay CSV nuevos en `data/object-store/`, el script **conserva** los `storage/universes/*.csv` ya sembrados (los del 09-19) y solo resiembra `config/*.json` (L72-80). No hace falta exportar nada de Barchart. Los CSV fuente están en `data/object-store/processed/`.
 
 **Criterio de aceptación:**
 - `shasum -a 256 config/strategies.json storage/config/strategies.json` da dos hashes iguales.
@@ -265,7 +267,7 @@ remotamente las ramas ya integradas en `develop`:
 - `git log --merges -1 --format=%s develop` empieza por `[Etapa 12] merge:`.
 - `git rev-parse main` == `git rev-parse develop`.
 - `git ls-remote --heads origin` solo lista `main` y `develop`.
-- `git ls-remote --tags origin` incluye `scan/v2026.09.23-pre-ciclo`, `scan/v2026.09.23-baseline` y el tag de promoción.
+- `git ls-remote --tags origin` incluye `scan/v2026.09.23-pre-ciclo`, el tag del baseline de T9 (`scan/vYYYY.MM.DD-baseline`, con la fecha real de T9) y el tag de promoción.
 - Antes de borrar cada rama, `git branch --merged develop` la lista.
 
 **Notas:** la rama de la Etapa 13 se crea al **empezar** la Etapa 13, no aquí.
@@ -301,8 +303,8 @@ Añadir una línea en `docs/ROADMAP.md`, bajo los candidatos de Fase 2, con las 
 
 ## Done when
 
-- [ ] T1: `run_tests.sh` verde; cifra registrada en PLAN; `docker run hello-world` OK
-- [ ] T2: config sembrada == config versionada (hashes iguales); short `false` en `storage/`; sin commit
+- [x] T1: `run_tests.sh` verde; cifra registrada en PLAN; `docker run hello-world` OK *(2026-09-23: **304 passed**, 0 failed, 0 skipped, 13 warnings; hello-world OK. El registro en PLAN se hace en T3)*
+- [x] T2: config sembrada == config versionada (hashes iguales); short `false` en `storage/`; sin commit *(2026-09-23: sha256 `1be6104e…` en ambos; universos del 09-19 conservados)*
 - [ ] T3: PLAN §7 con 0/5B/6B/9A/9B/10/11/12/13/14/15 en su estado real y la tabla de secuencia; CLAUDE.md, paso 1, actualizado; nota de supersesión en `etapa-11-…md`
 - [ ] T4: `node` y `openspec` instalados; versiones anotadas y compatibles con `engines`
 - [ ] T5: `openspec/` inicializado solo para Claude Code; diff revisado; `openspec validate --all --strict` exit 0
@@ -310,7 +312,7 @@ Añadir una línea en `docs/ROADMAP.md`, bajo los candidatos de Fase 2, con las 
 - [ ] T7: CLAUDE.md con la sección de OpenSpec y una única cadena de precedencia
 - [ ] T8: `chore-openspec-smoke` recorrió propose→validate→apply→verify→sync→archive con exit 0, sin flags prohibidos y sin duplicar requisitos; retirado después
 - [ ] T9: `baselines/scan-v2026.09.23-baseline/` versionado; `shasum -c` OK; tarball fuera del repo; 0 tickers fuera de `swing_advances`; tag creado
-- [ ] Fase A: `develop` y `main` avanzados por fast-forward y pusheados; tag `scan/v2026.09.23-pre-ciclo` en `origin`; rama de la etapa creada con la spec como primer commit
+- [x] Fase A: `develop` y `main` avanzados por fast-forward y pusheados; tag `scan/v2026.09.23-pre-ciclo` en `origin`; rama de la etapa creada con la spec como primer commit *(verificado 2026-09-23: `main` = `develop` = `origin/*` = `f8ded63`; tag anotado → `f8ded63` en `origin`; `origin/feature/etapa-12-bootstrap-openspec` = `9e5125f`)*
 - [ ] T10: merge `--no-ff` `[Etapa 12] merge:` en `develop`; `main` == `develop`; tag de promoción pusheado; en `origin` solo quedan `main` y `develop`
 - [ ] T11: decisión sobre Finnhub escrita en `docs/ROADMAP.md`
 - [ ] Commits `[Etapa 12] …`, uno por unidad coherente (spec en A6, T3, T4–T5, T6–T7, T8, T9 con la ventana fija, T11); bitácora `etapa-12-decisiones-y-pendientes.md` con versiones, hashes y hallazgos
