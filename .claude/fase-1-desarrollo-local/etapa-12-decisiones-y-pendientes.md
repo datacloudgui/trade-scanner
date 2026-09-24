@@ -71,7 +71,7 @@ Spec: [etapa-12.md](etapa-12.md) · Rama: `feature/etapa-12-bootstrap-openspec`
 - Verificado con `openspec instructions` en el repo temporal (con este mismo archivo): se inyectan el context, las 4 reglas (sin "ignoring") y las guías de apply y archive.
 - Repo: `openspec validate --all --strict` → exit 0; `openspec doctor` → exit 0.
 
-**Telemetría:** activa (solo nombres de comandos y versión, según la documentación). Queda como decisión del usuario apagarla con `openspec config set telemetry.enabled false`.
+**Telemetría:** activa (solo nombres de comandos y versión, según la documentación). ~~Queda como decisión del usuario apagarla con `openspec config set telemetry.enabled false`.~~ **Decisión (2026-09-23): se deja activa.**
 
 **Decisiones tomadas en T5 que afectan tareas posteriores:**
 - **Disposición de la documentación:** solo se mueve `AGENTS.md`; el resto se queda o se congela. Tabla en la spec, sección *Disposición de la documentación*.
@@ -216,4 +216,5 @@ Commits: `9a9784a` (spike archivado con Purpose) y `56738ed` (retiro manual + T8
 
 ## Pendientes
 
+- **Cerrados (2026-09-23):** Docker Desktop con socket por defecto habilitado (`/var/run/docker.sock` → `~/.docker/run/docker.sock`; `lean` ya no necesita `DOCKER_HOST`); telemetría de OpenSpec activa por decisión del usuario.
 - **T8b** (alineación con los hallazgos de T8) y después T9. **No se inician hasta que el usuario lo indique.**

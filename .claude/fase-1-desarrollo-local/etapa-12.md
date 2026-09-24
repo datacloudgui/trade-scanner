@@ -325,7 +325,7 @@ El change agrega un requisito trivial, p. ej. "el repo declara su flujo en CLAUD
 
 **2. Otras alineaciones (hallazgos 2–9):**
 1. **G3 selecciona dev explícitamente:** `lean backtest "trade-scanner" --parameter env dev` en CLAUDE.md (tabla de gates, L64) y en roadmap §0.2; README L93 y L204 dejan de decir que `config.json` trae `dev` (el versionado es `prod`; dev se pide por parámetro).
-2. **Docker para `lean`:** gotcha en CLAUDE.md. Si no existe `/var/run/docker.sock`, (a) activar en Docker Desktop *Settings → Advanced → "Allow the default Docker socket to be used"* (acción del usuario, recomendada) o (b) `DOCKER_HOST=unix://$HOME/.docker/run/docker.sock`. `run_tests.sh` no se ve afectado.
+2. **Docker para `lean`:** gotcha en CLAUDE.md. Si no existe `/var/run/docker.sock`, (a) activar en Docker Desktop *Settings → Advanced → "Allow the default Docker socket to be used"* o (b) `DOCKER_HOST=unix://$HOME/.docker/run/docker.sock`. **En esta máquina ya se hizo (a)** (2026-09-23: `/var/run/docker.sock` → `~/.docker/run/docker.sock`); el gotcha queda para otras máquinas. `run_tests.sh` no se ve afectado.
 3. **G3 contamina `storage/results/`:** regla en CLAUDE.md, *Ramas y commits* regla 3: tras un G3, no se ejecuta `notify_email.py` sin re-correr prod (la corrida semanal desde `main` lo regenera).
 4. **Gates en changes sin código:** la tabla de gates aclara que G2 y G3 aplican aunque el change no toque código (`/opsx:verify` ni ningún `/opsx:*` ejecuta tests ni backtests).
 5. **Regla de Scenarios** (`config.yaml` L29 y CLAUDE.md L79): "… o evidencia de comando citada en `bitacora.md` (requisitos documentales o de proceso)"; el WARNING de `verify` se justifica en `design.md`.
@@ -448,4 +448,4 @@ remotamente las ramas ya integradas en `develop`:
 - [ ] **Ventana del baseline:** se propone 2026-04-02 → 2026-09-18 (la misma que la corrida del 20-sep, para comparar con H1/H2). ¿Otra?
 - [ ] **Ubicación del tarball:** se propone `~/trade-scanner-snapshots/`. ¿Otra (disco externo, Drive)?
 - [x] ~~Si `archive` exige `--skip-specs` después de `sync`~~ — **resuelto en T5**: en el repo temporal, `archive` tras `sync` responde "Specs already in sync" y no duplica. T8 lo confirma con `/opsx:*`.
-- [ ] **Telemetría de OpenSpec** (configuración global de la máquina): ¿se apaga con `openspec config set telemetry.enabled false`? No bloquea.
+- [x] ~~**Telemetría de OpenSpec** (configuración global de la máquina): ¿se apaga con `openspec config set telemetry.enabled false`?~~ — **resuelto 2026-09-23: se deja activa** (decisión del usuario).
