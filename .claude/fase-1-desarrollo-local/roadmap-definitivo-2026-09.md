@@ -50,11 +50,11 @@ Todo lo demás se expresa en estos términos.
 | **G0** | Cierre de `propose` | `openspec validate <id> --strict` → exit 0 | El inicio de `apply` |
 | **G1** | Tras G0 | Aprobación humana de `proposal.md` (= paso 6 de CLAUDE.md) | El inicio de `apply` |
 | **G2** | Tras cada tarea de `apply` | `bash scripts/run_tests.sh` verde (Docker **arriba**) | El checkbox en `tasks.md` |
-| **G3** | Antes de `sync` | `lean backtest "trade-scanner"` en **dev**, EXIT=0 | `sync` |
+| **G3** | Antes de `sync` | `lean backtest "trade-scanner" --parameter env dev` (**dev**; el `config.json` versionado es `prod`), EXIT=0 | `sync` |
 | **G4** | Antes de `sync`, **si el change toca el scan o la salida** | Backtest **prod** con ventana fija; antes de correr se vacía `storage/results/`. Diff de `results/<base>/**/2026*.json` contra `baselines/<tag>/` (ver §0.5); las diferencias deben coincidir con las declaradas en `proposal.md`. dev NO sirve: su override `universe: sample_dev` oculta #12 | `sync` |
 | **G-data** | Antes de G4 (cuando exista U1) | Preflight de cobertura con exit 0 | G4 |
 | **G5** | Antes de `sync` | `/opsx:verify` sin **CRITICAL**; los WARNING se corrigen o se justifican en `design.md`. (verify por sí solo no bloquea `archive`: el bloqueo es convención nuestra) | `sync` y checkboxes de PLAN |
-| **G6** | Cierre | `sync` → checkboxes de PLAN con evidencia citada → `openspec validate <id> --strict` → `archive` (la CLI `openspec archive` valida, pero **`/opsx:archive` no**: archiva con `mv`, verificado en Etapa 12 T5; **prohibido** `--no-validate`) → Purpose escrito en cada capability nueva y `openspec validate --all --strict` exit 0 → commit `[Etapa N][<id>] …` → merge `--no-ff` a `develop` → fast-forward de `main` + tag `scan/vYYYY.MM.DD-N` (etapa-12 §Manejo de ramas) | — |
+| **G6** | Cierre | `sync` → checkboxes de PLAN con evidencia citada → `openspec validate <id> --strict` → `archive` (la CLI `openspec archive` valida, pero **`/opsx:archive` no**: archiva con `mv`, verificado en Etapa 12 T5; **prohibido** `--no-validate`) → Purpose **verificado** en cada capability nueva (sync/archive lo copian del delta; se escribe solo si quedó `TBD`) y `openspec validate --all --strict` exit 0 → commit `[Etapa N][<id>] …` → merge `--no-ff` a `develop` → fast-forward de `main` + tag `scan/vYYYY.MM.DD-N` (etapa-12 §Manejo de ramas) | — |
 
 ### 0.3 Primitivas de rollback
 

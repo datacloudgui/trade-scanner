@@ -90,7 +90,7 @@ La config de negocio vive en `config/strategies.json` y se lee en runtime vía O
 }
 ```
 
-- El entorno activo (`dev`/`prod`) se lee de `trade-scanner/config.json` → `"parameters": {"env": "dev"}` (único parámetro escalar del algoritmo; `get_parameter` NO lee el `lean.json` de la raíz).
+- El entorno activo (`dev`/`prod`) se lee de `trade-scanner/config.json` → `"parameters": {"env": "prod"}` (versionado en `prod`; dev se pide por parámetro: `lean backtest "trade-scanner" --parameter env dev`) (único parámetro escalar del algoritmo; `get_parameter` NO lee el `lean.json` de la raíz).
 - La notificación se configura en `config/notifications.json` (también ObjectStore): grupos por estrategia base, canales por entorno (`file` / `qc_notify` / `host_email`) y suscriptores.
 - La profundidad de warmup se deriva de los `timeframes` declarados acotada por `warmup_budget`; las series fuera de presupuesto se excluyen con warning y las rules que las referencien fallan explícito en `initialize()`.
 
@@ -201,7 +201,7 @@ trade-scanner/                   # raíz del workspace (aquí vive lean.json)
 ├── scripts/                     # seed, converters de datos, run_tests.sh
 └── trade-scanner/               # proyecto LEAN (pusheable a QC)
     ├── main.py                  # L5: orquestación (schedule, warmup, universo, sink)
-    ├── config.json              # SOLO parámetros del algoritmo: {"env": "dev"}
+    ├── config.json              # SOLO parámetros del algoritmo: {"env": "prod"} (dev: --parameter env dev)
     ├── core/                    # L2–L4: symbol_data, timeframes, features, rules, pipeline, universe, output
     ├── strategies/              # composición declarativa de rules por estrategia
     └── tests/

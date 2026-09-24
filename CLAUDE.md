@@ -24,7 +24,7 @@ Screener multi-estrategia sobre el motor LEAN (QuantConnect, Python 3.11). Carga
    - etapa con change (13, 5B, 11, 14, 15): el progreso granular va en `tasks.md` (cada `[x]` exige G2); los "Done when" de PLAN.md se marcan con evidencia citada en el cierre (G6).
 4. Una etapa se cierra solo cuando TODOS sus "Done when" están verificados (no asumidos: ejecutados) y, si es un change, pasó sus gates G0–G5.
 5. Cierre, en este orden:
-   1. Si es un change: `/opsx:sync` (tras G3/G4/G5) → "Done when" de PLAN con evidencia → `openspec validate <id> --strict` → `/opsx:archive` → Purpose de cada capability nueva → `openspec validate --all --strict` exit 0.
+   1. Si es un change: `/opsx:sync` (tras G3/G4/G5) → "Done when" de PLAN con evidencia → `openspec validate <id> --strict` → `/opsx:archive` → verificar el Purpose de cada capability nueva (escribirlo solo si quedó `TBD`) → `openspec validate --all --strict` exit 0.
    2. Estado a `completada` en PLAN.md → commit de cierre en la rama → push.
    3. `git switch develop && git merge --no-ff <rama> -m "[Etapa NN] merge: <resumen>"`.
    4. Promoción: `git switch main && git merge --ff-only develop` + `git tag -a scan/vYYYY.MM.DD-N`.
@@ -61,22 +61,26 @@ OpenSpec va **anidado** en las etapas de PLAN.md: PLAN es el índice; el change,
 | **G0** | Cierre de `/opsx:propose` | `openspec validate <id> --strict` exit 0 | `apply` |
 | **G1** | Tras G0 | Aprobación humana de `proposal.md` (paso 6 del flujo) | `apply` |
 | **G2** | Tras cada tarea | `bash scripts/run_tests.sh` verde | El `[x]` en `tasks.md` |
-| **G3** | Antes de `sync` | `lean backtest "trade-scanner"` en **dev**, exit 0 | `sync` |
+| **G3** | Antes de `sync` | `lean backtest "trade-scanner" --parameter env dev` (**dev**; el `config.json` versionado es `prod`), exit 0 | `sync` |
 | **G4** | Antes de `sync`, si el change toca el scan o la salida | Backtest **prod** con ventana fija y `storage/results/` vaciado; diff contra `baselines/<tag>/` == diferencias declaradas en `proposal.md`. dev no sirve (su override de universo oculta #12) | `sync` |
 | **G-data** | Antes de G4 (desde la Etapa 13) | Preflight de cobertura de datos exit 0 | G4 |
 | **G5** | Antes de `sync` | `/opsx:verify` sin CRITICAL; cada WARNING corregido o justificado en `design.md` | `sync` y checkboxes de PLAN |
 | **G6** | Cierre | Paso 5 del flujo | — |
+
+G2 y G3 aplican **aunque el change no toque código** (requisitos documentales o de proceso): ningún `/opsx:*` ni la CLI de OpenSpec ejecuta tests ni backtests, así que se corren a mano.
 
 ### Artefactos de un change
 
 Espejo obligatorio de las reglas de `openspec/config.yaml`:
 - Idioma: español; encabezados estructurales de OpenSpec y SHALL/MUST en inglés.
 - `proposal.md`:
-  - Etapa de PLAN.md y rama `feature/etapa-NN-<change-id>`;
+  - Etapa de PLAN.md y rama `feature/etapa-NN-<change-id>` (o la rama de la etapa si el change es una tarea de una etapa sin change);
   - sección "Diferencias esperadas en la watchlist" (insumo de G4; "ninguna" si no toca el scan);
   - sección "Rollback": R-cfg (`enabled: false` + reseed) o R-git (revert del merge o checkout del tag), y por qué basta ([roadmap §0.3](.claude/fase-1-desarrollo-local/roadmap-definitivo-2026-09.md)).
 - `design.md`: decisiones D-1, D-2…; las que cruzan changes van a un ADR en `.claude/decisions/` y se enlazan.
-- `specs/**`: cada Scenario es verificable por un test en Docker o por evidencia de backtest citada.
+- `specs/**`:
+  - cada Scenario es verificable por un test en Docker, por evidencia de backtest citada o por evidencia de comando citada en `bitacora.md` (requisitos documentales o de proceso); en este último caso, el WARNING de `/opsx:verify` se justifica en `design.md`;
+  - capability nueva: el delta abre con `## Purpose` (≥50 caracteres); sync y archive lo copian a la spec principal.
 - `tasks.md`: cada tarea con criterio de aceptación ejecutable; tareas explícitas de gate (G2, G3 y G4 si toca el scan) y una final de evidencia en `bitacora.md`.
 - Durante `/opsx:apply`: ningún `[x]` sin G2; no se toca el Estado en PLAN.md; la evidencia (comandos, hashes, conteos) va en `bitacora.md`.
 
@@ -85,7 +89,8 @@ Espejo obligatorio de las reglas de `openspec/config.yaml`:
 - `/opsx:archive` mueve la carpeta con `mv` y **no valida** (la CLI `openspec archive` sí). Por eso siempre va precedido de `openspec validate <id> --strict`.
 - Con tareas o artefactos incompletos, `/opsx:archive` solo pide confirmación: **nunca se confirma**; se detiene y se reporta.
 - Nunca se elige "Archive without syncing" si hay delta specs.
-- Tras archivar una capability nueva se escribe su `Purpose` (≥50 caracteres): `openspec validate --all --strict` falla con `TBD` o con texto corto.
+- Si las specs ya están sincronizadas, `/opsx:archive` ofrece *Archive now* / *Sync anyway* / *Cancel*: se elige **Archive now**; *Sync anyway* solo si la spec principal difiere del delta.
+- Tras archivar una capability nueva se **verifica** su `Purpose` (sync/archive lo copian del delta); solo si quedó `TBD` se escribe uno de ≥50 caracteres: `openspec validate --all --strict` falla con `TBD` o con texto corto.
 
 ### `openspec/config.yaml`
 
@@ -125,6 +130,7 @@ Casi nada se mueve: lo existente sigue activo en su sitio o queda congelado como
 3. **La corrida semanal real sale siempre de `main`, con reseed:** `git switch main && bash scripts/seed_object_store.sh` antes de `lean backtest`. `storage/` y `data/` están gitignoreados: `git switch` no los cambia y, sin reseed, la corrida usa la config de la última rama sembrada.
    - Mientras la Etapa 11 no cierre, la edición semanal de `end_date` en `main.py` no se commitea: se corre y después `git restore trade-scanner/main.py`, antes de cambiar de rama.
    - Las corridas de revisión de una etapa en curso se hacen en su rama y **no se publican** (no se ejecuta `notify_email.py`). Solo lo que sale de `main` llega al correo.
+   - Un G3 (dev) sobreescribe `storage/results/` (p. ej. `latest.json`): tras un G3 **no se ejecuta `notify_email.py` sin re-correr prod**; la corrida semanal desde `main` lo regenera.
 4. **Push:** rama de etapa tras cada commit; `develop`, `main` y tags en cada cierre; tags siempre anotados (`-a`).
 5. **No se reescribe historia publicada:** nada de `rebase` ni `push --force` sobre `develop`, `main` o una rama ya pusheada.
 6. **Merges locales** (no hay `gh`). La revisión antes del merge es la de por defecto: `/opsx:verify` + `/code-review`.
@@ -144,7 +150,7 @@ python scripts/explore_universe.py <csv> # perfilado del CSV de universo
 
 # OpenSpec (CLI 1.13.1; Node ≥ 20.19)
 openspec validate <id> --strict          # G0, y siempre antes de /opsx:archive
-openspec validate --all --strict         # tras archivar (con el Purpose escrito)
+openspec validate --all --strict         # tras archivar (sin Purpose `TBD`)
 openspec instructions <artefacto> --change <id>   # tras editar config.yaml: no debe decir "ignoring"
 openspec update                          # regenera .claude/commands/opsx/ (no se editan a mano)
 
@@ -236,10 +242,11 @@ Restricciones entre capas — verifícalas en cada cambio:
 ### Descubiertos en Etapa 12 (OpenSpec 1.13.1)
 
 - **`/opsx:archive` archiva con `mv` y no valida.** Solo la CLI `openspec archive` valida. Por eso existe la regla de `validate --strict` antes (ver *Reglas de archive*).
-- **Una capability nueva se archiva con `Purpose: TBD`**, y `openspec validate --all --strict` sale con exit 1 hasta que se escribe un Purpose de ≥50 caracteres.
+- **`Purpose: TBD` aparece solo si el delta de una capability nueva no trae `## Purpose`** (#1413, OpenSpec 1.13.1): con él, sync y archive lo copian literal. Si queda `TBD`, `openspec validate --all --strict` sale con exit 1 hasta que se escribe un Purpose de ≥50 caracteres.
 - **Trampa de YAML en `openspec/config.yaml`:** un ítem con `": "` sin comillas se parsea como mapa y OpenSpec **descarta sin fallar todas las reglas** de ese artefacto (solo avisa "must be an array of strings, ignoring"). Entrecomillar el ítem.
 - **El perfil `core` no incluye `verify`** (sin él no hay G5). La máquina usa el perfil global `custom` = core + verify con `delivery: commands` (`~/.config/openspec/config.json`). En otra máquina: `openspec config profile` + `openspec update`.
 - **`/opsx:verify` no corre tests:** G2 sigue siendo `bash scripts/run_tests.sh`.
+- **`lean backtest` reescribe `lean.json`** (`file-database-last-update`) en cada corrida: `git restore lean.json` antes de commitear.
 
 ## Definición de "verificado"
 

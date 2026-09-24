@@ -15,18 +15,20 @@ context: |
   .claude/fase-1-desarrollo-local/roadmap-definitivo-2026-09.md §0.
   Tests: SOLO `bash scripts/run_tests.sh` (Docker, imagen LEAN); pytest del host no sirve.
   Umbrales/horarios/universos viven en config/strategies.json (ObjectStore), nunca en código.
-  Cada change corresponde a una Etapa de PLAN.md y a una rama feature/etapa-NN-<change-id>.
+  Cada change corresponde a una Etapa de PLAN.md y a una rama feature/etapa-NN-<change-id>
+  (o la rama de la etapa si el change es una tarea de una etapa sin change).
 
 # Reglas por tipo de artefacto (claves válidas en spec-driven: proposal, specs, design, tasks).
 rules:
   proposal:
-    - Indicar la Etapa de PLAN.md y la rama feature/etapa-NN-<change-id>.
+    - Indicar la Etapa de PLAN.md y la rama feature/etapa-NN-<change-id> (o la rama de la etapa si el change es una tarea de una etapa sin change).
     - Incluir la sección "Diferencias esperadas en la watchlist" (insumo del gate G4); "ninguna" si no toca el scan.
     - 'Incluir la sección "Rollback": R-cfg (enabled) o R-git (tag/revert), y por qué basta.'
   design:
     - Decisiones numeradas D-1, D-2...; las que cruzan changes van a un ADR en .claude/decisions/ y se enlazan.
   specs:
-    - Cada Scenario debe ser verificable por un test en Docker o por evidencia de backtest citada.
+    - Cada Scenario debe ser verificable por un test en Docker, por evidencia de backtest citada o por evidencia de comando citada en bitacora.md (requisitos documentales o de proceso); en este último caso, el WARNING de /opsx:verify se justifica en design.md.
+    - 'Capability nueva: el delta abre con `## Purpose` (≥50 caracteres); sync y archive lo copian a la spec principal.'
   tasks:
     - Cada tarea con criterio de aceptación ejecutable.
     - Incluir tareas explícitas de gate (G2 tests, G3 backtest dev, G4 backtest prod si toca el scan) y una final de evidencia en bitacora.md.
@@ -44,4 +46,4 @@ operations:
       - Antes de archivar, correr `openspec validate <change> --strict`; si falla, no archivar.
       - Nunca confirmar el archivo con artefactos o tareas incompletas; detenerse y reportar.
       - Nunca elegir "Archive without syncing" si el change tiene delta specs.
-      - Tras archivar una capability nueva, escribir su Purpose (≥50 caracteres) y dejar `openspec validate --all --strict` en exit 0.
+      - Tras archivar una capability nueva, verificar su Purpose (sync/archive lo copian del delta); solo si quedó TBD, escribir uno de ≥50 caracteres. Dejar `openspec validate --all --strict` en exit 0.

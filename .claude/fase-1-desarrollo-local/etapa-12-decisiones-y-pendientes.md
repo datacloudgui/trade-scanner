@@ -214,7 +214,42 @@ Commits: `9a9784a` (spike archivado con Purpose) y `56738ed` (retiro manual + T8
 
 **Decisión posterior (usuario, 2026-09-23):** cerrar T8 con CLAUDE.md tal como se probó y alinear después en una tarea nueva, **T8b**, antes de T9.
 
+## T8b — Alineación con los hallazgos de T8 (2026-09-23)
+
+Edición explícita de CLAUDE.md aprobada por el usuario (paso 6 del flujo). Solo se tocaron las líneas que nombra el spec; `.claude/commands/opsx/` y `etapa-12.md` T8 quedan sin cambios.
+
+**Ediciones (hallazgo → dónde):**
+
+| Hallazgo | CLAUDE.md | Otros |
+|---|---|---|
+| 1 Purpose en el delta, verificado tras archive | paso 5.1 (L27); *Artefactos*, `specs/**` (L83, regla nueva); *Reglas de archive* (L93); *Comandos* (L153, "sin Purpose `TBD`"); gotcha (L245, #1413) | `config.yaml`: `rules.specs` (regla nueva, entrecomillada por `": "` y `#`) y `operations.archive.guidance`; roadmap §0.2 G6 |
+| 2 G2/G3 en changes sin código | nota bajo la tabla de gates (L70) | — |
+| 3 G3 con `--parameter env dev` | tabla de gates, G3 (L64) | roadmap §0.2 G3; README L93 y L204 (`config.json` versionado = `prod`) |
+| 5 G3 contamina `storage/results/` | *Ramas y commits*, regla 3 (L133) | — |
+| 6 Regla de Scenarios | *Artefactos*, `specs/**` (L82) | `config.yaml` `rules.specs` |
+| 7 *Archive now* | *Reglas de archive* (L92) | — |
+| 8 Rama (aclaración) | *Artefactos*, `proposal.md` (L77) | `config.yaml` `context` y `rules.proposal` |
+| 9 `lean.json` | gotcha *Descubiertos en Etapa 12* (L249) | — |
+
+**Evidencia (criterios de aceptación):**
+
+| Criterio | Salida |
+|---|---|
+| `grep -c "se escribe su \`Purpose\`\|con el Purpose escrito\|se archiva con \`Purpose: TBD\`" CLAUDE.md` | **0** |
+| `grep -c "escribir su Purpose" openspec/config.yaml` | **0** |
+| `grep -c "## Purpose" openspec/config.yaml` | **1**; misma regla en CLAUDE.md L83 |
+| `grep -c -- "--parameter env dev"` CLAUDE.md / roadmap | **1** / **1** |
+| `grep -c '{"env": "dev"}' README.md` | **0** |
+| Reglas en CLAUDE.md | no publicar tras G3 (L133), G2/G3 sin código (L70), Scenarios ampliada (L82), *Archive now* (L92), rama (L77), gotcha `lean.json` (L249) |
+| `openspec new change tmp-t8b-check` → `openspec instructions specs --change tmp-t8b-check` | exit 0; "ignoring" = **0**; muestra la regla de Scenarios ampliada, la de `## Purpose` y la aclaración de rama (en el `context`) |
+| `openspec instructions proposal --change tmp-t8b-check` | exit 0; "ignoring" = **0**; muestra la aclaración de rama en `context` y en `rules.proposal` |
+| Change temporal | `rm -rf openspec/changes/tmp-t8b-check`; `git status` sin rastro; nunca commiteado |
+| `openspec validate --all --strict` | **exit 0** ("No items found to validate") |
+| `bash scripts/run_tests.sh` | **exit 0, 304 passed**, 13 warnings |
+
+**Nota:** `openspec instructions specs` sin `--change` (forma literal del criterio) sale con "Missing required option --change" en 1.13.1: la instrucción de cualquier artefacto exige un change. Se verificó con `--change tmp-t8b-check`, que es lo que el criterio pretende.
+
 ## Pendientes
 
 - **Cerrados (2026-09-23):** Docker Desktop con socket por defecto habilitado (`/var/run/docker.sock` → `~/.docker/run/docker.sock`; `lean` ya no necesita `DOCKER_HOST`); telemetría de OpenSpec activa por decisión del usuario.
-- **T8b** (alineación con los hallazgos de T8) y después T9. **No se inician hasta que el usuario lo indique.**
+- **T8b** cerrada (2026-09-23). **T9** no se inicia hasta que el usuario lo indique.
