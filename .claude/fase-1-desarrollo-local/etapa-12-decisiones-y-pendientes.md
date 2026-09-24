@@ -198,7 +198,7 @@ Primera vez que se recorre el ciclo `/opsx:*` en el repo. La evidencia detallada
 | `validate --all --strict` | Con la capability: exit 0 (1 passed). Tras `git rm -r openspec/specs/openspec-smoke/`: exit 0 ("No items found to validate") |
 | Flags prohibidos | Nunca `--no-validate` ni `--skip-specs` |
 
-Commits: `9a9784a` (spike archivado con Purpose) y el del retiro manual.
+Commits: `9a9784a` (spike archivado con Purpose) y `56738ed` (retiro manual + T8 marcado).
 
 **Hallazgos** (dónde un `/opsx:*` o el repo difiere de CLAUDE.md; se alinean en **T8b**):
 

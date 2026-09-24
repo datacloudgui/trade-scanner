@@ -311,6 +311,38 @@ El change agrega un requisito trivial, p. ej. "el repo declara su flujo en CLAUD
 - `/opsx:archive` archiva con `mv`, así que el paso 4 queda: `openspec validate chore-openspec-smoke --strict` → `/opsx:archive`;
 - la regla del Purpose, al retirar el requisito trivial.
 
+### T8b — Alinear CLAUDE.md, `config.yaml` y roadmap con los hallazgos de T8
+
+**Contexto (2026-09-23):** T8 se cerró con CLAUDE.md tal como se probó; sus hallazgos (bitácora, sección T8) se alinean aquí, antes de T9, para que el primer change real (Etapa 13) no los repita. Tarea agregada con aprobación del usuario (paso 6 del flujo). Toca el paso 5.1 del *Flujo de trabajo*: edición explícita de CLAUDE.md aprobada por el usuario.
+
+**1. Purpose (hallazgo 1).** El Purpose va en el delta y sync/archive lo copian; tras archivar se **verifica**, y solo se escribe si quedó `TBD`:
+- CLAUDE.md L27 (paso 5.1): "→ Purpose de cada capability nueva →" → "→ verificar el Purpose de cada capability nueva (escribirlo solo si quedó `TBD`) →";
+- CLAUDE.md L88 (*Reglas de archive*) y `openspec/config.yaml` L47 (`operations.archive.guidance`): la regla nueva;
+- CLAUDE.md L147 (*Comandos*): "(con el Purpose escrito)" → "(sin Purpose `TBD`)";
+- CLAUDE.md L239 (gotcha): el `TBD` aparece solo si el delta no trae `## Purpose` (#1413, OpenSpec 1.13.1);
+- regla nueva en `config.yaml` `rules.specs` y su espejo en CLAUDE.md L79 (*Artefactos de un change*): "capability nueva: el delta abre con `## Purpose` (≥50 caracteres)";
+- roadmap §0.2, fila G6: igual que L88.
+
+**2. Otras alineaciones (hallazgos 2–9):**
+1. **G3 selecciona dev explícitamente:** `lean backtest "trade-scanner" --parameter env dev` en CLAUDE.md (tabla de gates, L64) y en roadmap §0.2; README L93 y L204 dejan de decir que `config.json` trae `dev` (el versionado es `prod`; dev se pide por parámetro).
+2. **Docker para `lean`:** gotcha en CLAUDE.md. Si no existe `/var/run/docker.sock`, (a) activar en Docker Desktop *Settings → Advanced → "Allow the default Docker socket to be used"* (acción del usuario, recomendada) o (b) `DOCKER_HOST=unix://$HOME/.docker/run/docker.sock`. `run_tests.sh` no se ve afectado.
+3. **G3 contamina `storage/results/`:** regla en CLAUDE.md, *Ramas y commits* regla 3: tras un G3, no se ejecuta `notify_email.py` sin re-correr prod (la corrida semanal desde `main` lo regenera).
+4. **Gates en changes sin código:** la tabla de gates aclara que G2 y G3 aplican aunque el change no toque código (`/opsx:verify` ni ningún `/opsx:*` ejecuta tests ni backtests).
+5. **Regla de Scenarios** (`config.yaml` L29 y CLAUDE.md L79): "… o evidencia de comando citada en `bitacora.md` (requisitos documentales o de proceso)"; el WARNING de `verify` se justifica en `design.md`.
+6. **Opciones de `/opsx:archive`:** CLAUDE.md, *Reglas de archive*: si ya está sincronizado, se elige *Archive now* (*Sync anyway* solo si la spec principal difiere del delta).
+7. **Rama (solo aclaración):** CLAUDE.md L75 y `config.yaml` L18/L23: "(o la rama de la etapa si el change es una tarea de una etapa sin change)".
+8. **`lean.json`:** gotcha en CLAUDE.md: el CLI reescribe `file-database-last-update` en cada backtest → `git restore lean.json` antes de commitear.
+
+**Criterio de aceptación:**
+- `grep -n "se escribe su \`Purpose\`\|con el Purpose escrito\|se archiva con \`Purpose: TBD\`" CLAUDE.md` = 0, y `grep -c "escribir su Purpose" openspec/config.yaml` = 0.
+- `grep -c "## Purpose" openspec/config.yaml` ≥ 1 (regla de specs) y la misma regla presente en CLAUDE.md, *Artefactos de un change*.
+- `grep -c -- "--parameter env dev" CLAUDE.md` ≥ 1 y en roadmap §0.2 ≥ 1; README sin "`{\"env\": \"dev\"}`" como valor versionado.
+- CLAUDE.md contiene los gotchas de Docker (`DOCKER_HOST`) y de `lean.json`, la regla de no publicar tras G3, la aplicabilidad de G2/G3 en changes sin código, la ampliación de la regla de Scenarios, *Archive now* y la aclaración de rama.
+- `openspec instructions specs --change <id>` y `openspec instructions proposal --change <id>` sobre un change temporal (se borra después, sin commit) no avisan "ignoring" y muestran las reglas nuevas.
+- `openspec validate --all --strict` exit 0; `bash scripts/run_tests.sh` exit 0.
+
+**Notas:** los archivos de `.claude/commands/opsx/` no se editan (los genera `openspec update`). La acción (a) de Docker la hace el usuario; si no se hace, basta el gotcha (b).
+
 
 ### T9 — Baseline long para G4 (roadmap §0.5)
 
@@ -405,10 +437,11 @@ remotamente las ramas ya integradas en `develop`:
 - [x] T6: sin `AGENTS.md` de solo lectura en la raíz; `run_review.sh` opcional, apunta a `docs/review/codex-review-prompt.md` y, sin Codex, sale con mensaje y exit 1 sin crear directorios; prompt y concepto alineados; `bash -n` OK *(2026-09-23: `test ! -f AGENTS.md` y `test -f docs/review/codex-review-prompt.md` OK; `grep AGENTS.md scripts/*.sh` = 0; `bash -n` OK; `run_review.sh 5` → mensaje de opcional, exit 1, `ls revisiones` = `20260619-205134` antes y después; prompt: "precedencia de CLAUDE.md" = 1, "máxima precedencia" = 0, "Opción C" = 1; cápsula marca Codex opcional y nombra `/opsx:verify` + `/code-review`)*
 - [x] T7: CLAUDE.md con la sección de OpenSpec y una única cadena de precedencia *(2026-09-23: `grep -n "PLAN.md > SPECS.md" CLAUDE.md` = 0; cadena única en L14 con su excepción; sección `## OpenSpec y PLAN.md` con las 4 reglas de §0.4 (7 prohibiciones), gates, artefactos (espejo de `config.yaml`), reglas de archive, disposición y ramas; pasos 3–5 del flujo con el cierre nuevo; gotchas de Etapa 12; `run_tests.sh` exit 0, 304 passed; `openspec validate --all --strict` exit 0)*
 - [x] T8: `chore-openspec-smoke` recorrió propose→validate→apply→verify→sync→validate→archive sin errores ni flags prohibidos; reglas de `config.yaml` presentes en el proposal; requisito sin duplicar; Purpose escrito; capability retirada a mano y `validate --all --strict` exit 0 *(2026-09-23: `validate chore-openspec-smoke --strict` exit 0 en G0, tras G1 y antes de archive; G2 `run_tests.sh` exit 0 ×3 (304 passed); G3 `lean backtest --parameter env dev` exit 0; G4 N/A; `/opsx:verify` 0 CRITICAL, 1 WARNING justificado (D-2); nunca `--no-validate` ni `--skip-specs`; proposal con Etapa + rama, "Diferencias esperadas en la watchlist" y "Rollback", sin "ignoring"; requisito = 1 en `openspec/specs/`; archivado en `openspec/changes/archive/2026-09-23-chore-openspec-smoke/` (`9a9784a`); Purpose copiado del delta por sync (134 car., sin TBD: el paso 5 quedó como verificación); `validate --all --strict` exit 0 antes (1 passed) y después del `git rm` ("No items found"). Hallazgos → T8b)*
+- [ ] T8b: CLAUDE.md, `config.yaml`, roadmap §0.2 y README alineados con los hallazgos de T8 (Purpose en el delta y verificado tras archive; G3 con `--parameter env dev`; gotchas de Docker y `lean.json`; no publicar tras G3; G2/G3 en changes sin código; regla de Scenarios; *Archive now*; aclaración de rama); `openspec instructions` sin "ignoring"; `validate --all --strict` y `run_tests.sh` exit 0
 - [ ] T9: ventana commiteada antes del backtest; `baselines/scan-vYYYY.MM.DD-baseline/` versionado; `shasum -c` OK; tarball fuera del repo; 0 tickers fuera de `swing_advances`; tag anotado pusheado
 - [ ] T10: commit de cierre (PLAN, spec y bitácora → `completada`); merge `--no-ff` `[Etapa 12] merge:` en `develop`; `main` == `develop`; tag de promoción pusheado; en `origin` solo quedan `main` y `develop`
 - [ ] T11: decisión sobre Finnhub escrita en `docs/ROADMAP.md`
-- [ ] Commits `[Etapa 12] …`, uno por unidad coherente (spec en A6, T1–T2, T3, T4–T5, T6, T7, T8 (+ retiro), T9 ventana + T9 baseline, T11, cierre T10); bitácora `etapa-12-decisiones-y-pendientes.md` con versiones, hashes y hallazgos
+- [ ] Commits `[Etapa 12] …`, uno por unidad coherente (spec en A6, T1–T2, T3, T4–T5, T6, T7, T8 (+ retiro), T8b, T9 ventana + T9 baseline, T11, cierre T10); bitácora `etapa-12-decisiones-y-pendientes.md` con versiones, hashes y hallazgos
 
 ## Preguntas abiertas
 
