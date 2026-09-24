@@ -178,6 +178,42 @@ Además: la Fase A se movió al principio del Done when; la lista de commits ref
 
 **Tachado en esta bitácora** (pedido del usuario): la línea "T6 ampliado" de T5 y los puntos 1–2 de la *Revisión de alineación*, que describían `CHANGE=<id>`/`DRY_RUN` en T6. Quedaron superados por la decisión "Codex no disponible".
 
+## T8 — Spike `chore-openspec-smoke` (2026-09-23)
+
+Primera vez que se recorre el ciclo `/opsx:*` en el repo. La evidencia detallada vive en el change archivado: [bitacora.md](../../openspec/changes/archive/2026-09-23-chore-openspec-smoke/bitacora.md) (y sus `proposal`, `design` D-1…D-5, `tasks`).
+
+**Recorrido y evidencia (criterios de aceptación):**
+
+| Paso | Salida |
+|---|---|
+| `/opsx:propose` → G0 `openspec validate chore-openspec-smoke --strict` | `is valid`, **exit 0**. Reglas de `config.yaml` inyectadas en los 4 artefactos, sin "ignoring" |
+| G1 | Aprobado por el usuario tras dos decisiones: `## Purpose` en el delta (D-3) y G2 + G3 aunque no haya código (D-5). Re-validación: exit 0 |
+| `proposal.md` | Trae Etapa 12 T8 + rama, "Diferencias esperadas en la watchlist" (ninguna) y "Rollback" (R-git); artefactos en español, encabezados y SHALL en inglés |
+| `/opsx:apply` | 5/5 tareas. G2 `run_tests.sh` exit 0 ×3 (**304 passed**); G3 `lean backtest "trade-scanner" --parameter env dev` **exit 0** (`env=dev`, `gate dev OK 36/36`); G4 N/A (`git diff --stat develop -- trade-scanner/ config/` vacío) |
+| `/opsx:verify` (G5) | **0 CRITICAL**; 1 WARNING ("scenario sin test") justificado en design D-2 |
+| `/opsx:sync` | Creó `openspec/specs/openspec-smoke/spec.md`; `validate --specs --strict` exit 0 |
+| `validate --strict` → `/opsx:archive` | exit 0 → "already synced"; opciones *Archive now* / *Sync anyway* / *Cancel* pasadas al usuario, que eligió **Archive now** → `openspec/changes/archive/2026-09-23-chore-openspec-smoke/` |
+| Requisito sin duplicar | `grep -rc` en `openspec/specs/` = **1** |
+| Purpose | Copiado literal del delta por sync: 134 caracteres, sin `TBD` → no hubo que escribirlo |
+| `validate --all --strict` | Con la capability: exit 0 (1 passed). Tras `git rm -r openspec/specs/openspec-smoke/`: exit 0 ("No items found to validate") |
+| Flags prohibidos | Nunca `--no-validate` ni `--skip-specs` |
+
+Commits: `9a9784a` (spike archivado con Purpose) y el del retiro manual.
+
+**Hallazgos** (dónde un `/opsx:*` o el repo difiere de CLAUDE.md; se alinean en **T8b**):
+
+1. **Purpose — `/opsx:propose` (instrucción de specs) vs CLAUDE.md.** El schema 1.13.1 pide `## Purpose` en el delta de una capability nueva, y `/opsx:sync` (paso 4d) y la CLI `archive` (#1413) lo copian literal a la spec principal. CLAUDE.md (L27, L88, L147, gotcha L239), `config.yaml` L47 y roadmap §0.2 G6 dan por hecho un `TBD` que hay que escribir. **Qué hice:** seguí al generador (D-3); el paso 5 quedó como verificación. El `TBD` de T5 venía de un delta sin Purpose.
+2. **Gates en un change sin código — spec T8 vs CLAUDE.md.** El spec decía que G2/G3/G4 "no aplican"; CLAUDE.md exige G2 para cada `[x]` y prohíbe `sync` sin G3. Ningún `/opsx:*` ni la CLI ejecuta tests o backtests (`verify` solo lee; los 7 comandos declaran `allowed-tools: Bash(openspec:*)`). **Qué hice:** se corrieron G2 y G3 a mano (D-5, aprobado en G1).
+3. **G3 no define cómo se elige dev.** `trade-scanner/config.json` versionado = `env: prod`; el README (L93, L204) dice `dev`. **Qué hice:** `--parameter env dev` sin tocar archivos versionados; verificado en el log (`env=dev`).
+4. **`lean` no encuentra Docker:** busca `/var/run/docker.sock`, que no existe con Docker Desktop (`~/.docker/run/docker.sock`); `run_tests.sh` sí funciona porque usa el CLI `docker`. **Qué hice:** `DOCKER_HOST=unix://$HOME/.docker/run/docker.sock` solo en ese comando.
+5. **G3 contamina `storage/results/`:** la corrida dev sobreescribió `storage/results/swing_eod/latest.json`. Gitignoreado; G4/T9 vacían la carpeta, pero falta una regla que impida publicar tras un G3 sin re-correr prod.
+6. **Regla de Scenarios de `config.yaml`** ("test en Docker o evidencia de backtest") no cubre requisitos documentales. **Qué hice:** evidencia de comando citada en la bitácora (D-2); `verify` lo reporta como WARNING.
+7. **`/opsx:archive` con specs ya sincronizadas** ofrece *Archive now* / *Sync anyway* / *Cancel*; CLAUDE.md solo regula "Archive without syncing".
+8. **Rama:** `config.yaml` sugiere `feature/etapa-NN-<change-id>`; como el spike es una tarea de una etapa sin change, ganó "una etapa, una rama" (D-4). En los ciclos normales el patrón encaja; solo se registra.
+9. **Lateral (conocido):** el CLI reescribe `file-database-last-update` en `lean.json` en cada backtest → `git restore lean.json` antes de commitear.
+
+**Decisión posterior (usuario, 2026-09-23):** cerrar T8 con CLAUDE.md tal como se probó y alinear después en una tarea nueva, **T8b**, antes de T9.
+
 ## Pendientes
 
-- T8 en adelante. **T8 no se inicia hasta que el usuario lo indique.**
+- **T8b** (alineación con los hallazgos de T8) y después T9. **No se inician hasta que el usuario lo indique.**
